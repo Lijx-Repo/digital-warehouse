@@ -1,7 +1,11 @@
-/* Digital Warehouse 前端逻辑 —— 精简版：入库 / 出库 / 时间追踪 */
+/* Digital Warehouse 前端逻辑 —— 精简版：在库物品 + 出库记录（送给谁） */
 const $ = (sel) => document.querySelector(sel);
 
-const state = { items: [], categories: [], editingId: null };
+const state = {
+  items: [], categories: [], editingId: null,
+  outbound: [], obEditingId: null, outTargetId: null,
+  page: 'stock', // 'stock' | 'outbound'
+};
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -22,6 +26,7 @@ async function loadCategories() {
     .map((c) => `<option value="${esc(c)}">${esc(c)}</option>`)
     .join('');
   $('#filter-category').innerHTML = '<option value="">全部分类</option>' + opts;
+  $('#ob-filter-category').innerHTML = '<option value="">全部分类</option>' + opts;
   $('#form-category').innerHTML = opts + '<option value="__new__">＋ 新分类…</option>';
 }
 
@@ -38,9 +43,23 @@ async function loadItems() {
   loadStats();
 }
 
+async function loadOutbound() {
+  const params = new URLSearchParams();
+  const kw = $('#ob-search').value.trim();
+  const cat = $('#ob-filter-category').value;
+  const sort = $('#ob-sort').value;
+  if (kw) params.set('q', kw);
+  if (cat) params.set('category', cat);
+  params.set('sort', sort);
+  state.outbound = await api('/api/outbound?' + params.toString());
+  renderOutbound();
+  loadStats();
+}
+
 async function loadStats() {
   const s = await api('/api/stats');
   $('#st-total').textContent = s.total;
+  $('#st-out-total').textContent = s.outboundTotal ?? 0;
 }
 
 /* ---------- 渲染 ---------- */
@@ -95,6 +114,46 @@ function renderList() {
     </article>`).join('');
 }
 
+/* ---------- 渲染：出库记录页 ---------- */
+function outDurationBadge(rec) {
+  const d = rec.meta && rec.meta.daysOut;
+  if (d == null) return '';
+  const years = Math.floor(d / 365);
+  const dur = years >= 1 ? `${years}年${Math.floor((d % 365) / 30)}个月` : (d >= 30 ? `${Math.floor(d / 30)}个月（${d}天）` : `${d}天`);
+  return `<span class="badge muted">🕐 已出库 ${dur}</span>`;
+}
+
+function renderOutbound() {
+  const list = $('#ob-list');
+  if (!state.outbound.length) {
+    list.innerHTML = '';
+    $('#ob-empty').classList.remove('hidden');
+    return;
+  }
+  $('#ob-empty').classList.add('hidden');
+  list.innerHTML = state.outbound.map((rec) => `
+    <article class="item" data-id="${rec.id}">
+      <div class="item-head">
+        <h3 class="item-name">${catIcon(rec.category)} ${esc(rec.name)} ×${rec.quantity}${esc(rec.unit || '')}</h3>
+        <span class="item-cat">${esc(rec.category)}</span>
+      </div>
+      <div class="meta">
+        ${rec.spec ? `<b>${esc(rec.spec)}</b><br>` : ''}
+        🎁 送给：<b>${esc(rec.recipient || '未填写')}</b>${rec.reason ? ' · ' + esc(rec.reason) : ''}<br>
+        📥 入库：${esc(rec.inDate || '—')} → 📤 出库：${esc(rec.outDate || '—')}<br>
+        ${rec.notes ? `📝 ${esc(rec.notes)}` : ''}
+      </div>
+      <div class="badges">
+        ${outDurationBadge(rec)}
+      </div>
+      <div class="row-actions">
+        <span class="spacer"></span>
+        <button class="btn ghost small" data-act="ob-edit">编辑</button>
+        <button class="btn danger-ghost small" data-act="ob-del">删除</button>
+      </div>
+    </article>`).join('');
+}
+
 /* ---------- 表单 ---------- */
 function openDialog(item) {
   state.editingId = item ? item.id : null;
@@ -135,6 +194,60 @@ async function submitForm(e) {
   }
 }
 
+/* ---------- 出库弹窗 ---------- */
+function openOutDialog(item) {
+  state.outTargetId = item.id;
+  const f = $('#out-form');
+  f.reset();
+  $('#out-summary').textContent = `${item.name} ×${item.quantity}${item.unit || ''}（${item.category}${item.spec ? ' · ' + item.spec : ''}）`;
+  f.elements.outDate.value = new Date().toISOString().slice(0, 10); // 默认今天
+  $('#dlg-out').showModal();
+  f.elements.recipient.focus();
+}
+
+async function submitOut(e) {
+  e.preventDefault();
+  const f = $('#out-form');
+  const body = Object.fromEntries(new FormData(f).entries());
+  try {
+    await api(`/api/items/${state.outTargetId}/out`, { method: 'POST', body: JSON.stringify(body) });
+    $('#dlg-out').close();
+    await Promise.all([loadItems(), loadOutbound()]);
+  } catch (err) { alert(err.message); }
+}
+
+/* ---------- 编辑出库记录 ---------- */
+function openObEditDialog(rec) {
+  state.obEditingId = rec.id;
+  const f = $('#ob-edit-form');
+  f.reset();
+  $('#ob-edit-summary').textContent = `${rec.name} ×${rec.quantity}${rec.unit || ''}（${rec.category}）`;
+  for (const k of ['recipient', 'reason', 'outDate', 'notes']) {
+    if (f.elements[k]) f.elements[k].value = rec[k] ?? '';
+  }
+  $('#dlg-ob-edit').showModal();
+}
+
+async function submitObEdit(e) {
+  e.preventDefault();
+  const f = $('#ob-edit-form');
+  const body = Object.fromEntries(new FormData(f).entries());
+  try {
+    await api('/api/outbound/' + state.obEditingId, { method: 'PUT', body: JSON.stringify(body) });
+    $('#dlg-ob-edit').close();
+    await loadOutbound();
+  } catch (err) { alert(err.message); }
+}
+
+/* ---------- 页面切换 ---------- */
+function switchPage(page) {
+  state.page = page;
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.page === page));
+  $('#page-stock').classList.toggle('hidden', page !== 'stock');
+  $('#page-outbound').classList.toggle('hidden', page !== 'outbound');
+  if (page === 'outbound') loadOutbound();
+}
+
 /* ---------- 事件 ---------- */
 $('#btn-new').addEventListener('click', () => openDialog(null));
 $('#btn-cancel').addEventListener('click', () => $('#dlg').close());
@@ -142,11 +255,19 @@ $('#form').addEventListener('submit', submitForm);
 $('#form-category').addEventListener('change', (e) => {
   $('#new-category').classList.toggle('hidden', e.target.value !== '__new__');
 });
+$('#btn-out-cancel').addEventListener('click', () => $('#dlg-out').close());
+$('#out-form').addEventListener('submit', submitOut);
+$('#btn-ob-cancel').addEventListener('click', () => $('#dlg-ob-edit').close());
+$('#ob-edit-form').addEventListener('submit', submitObEdit);
+document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => switchPage(t.dataset.page)));
 
-let debounce;
+let debounce, obDebounce;
 $('#search').addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(loadItems, 250); });
 $('#filter-category').addEventListener('change', loadItems);
 $('#sort').addEventListener('change', loadItems);
+$('#ob-search').addEventListener('input', () => { clearTimeout(obDebounce); obDebounce = setTimeout(loadOutbound, 250); });
+$('#ob-filter-category').addEventListener('change', loadOutbound);
+$('#ob-sort').addEventListener('change', loadOutbound);
 
 $('#list').addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-act]');
@@ -156,16 +277,28 @@ $('#list').addEventListener('click', async (e) => {
   const act = btn.dataset.act;
   try {
     if (act === 'edit') return openDialog(item);
-    if (act === 'out') {
-      /* 出库确认：确认后记录直接从列表消失 */
-      if (!confirm(`确定将「${item.name} ×${item.quantity}${item.unit || ''}」出库吗？`)) return;
-      await api('/api/items/' + id, { method: 'DELETE' });
-    }
+    if (act === 'out') return openOutDialog(item); /* 出库：弹窗登记送给谁，确认后从在库列表消失 */
     if (act === 'del') {
-      if (!confirm(`确定删除「${item.name}」吗？`)) return;
+      if (!confirm(`确定删除「${item.name}」吗？（仅删除记录，不会写入出库记录）`)) return;
       await api('/api/items/' + id, { method: 'DELETE' });
+      await loadItems();
     }
-    await loadItems();
+  } catch (err) { alert(err.message); }
+});
+
+$('#ob-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const id = btn.closest('.item').dataset.id;
+  const rec = state.outbound.find((x) => x.id === id);
+  const act = btn.dataset.act;
+  try {
+    if (act === 'ob-edit') return openObEditDialog(rec);
+    if (act === 'ob-del') {
+      if (!confirm(`确定删除这条出库记录吗？（「${rec.name}」送给 ${rec.recipient || '未填写'}）`)) return;
+      await api('/api/outbound/' + id, { method: 'DELETE' });
+      await loadOutbound();
+    }
   } catch (err) { alert(err.message); }
 });
 
@@ -178,6 +311,7 @@ $('#btn-export').addEventListener('click', () => {
   try {
     await loadCategories();
     await loadItems();
+    await loadOutbound(); // 预载出库记录，用于统计卡片
   } catch (err) {
     alert('初始化失败：' + err.message);
   }

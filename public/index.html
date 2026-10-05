@@ -21,27 +21,53 @@
     </div>
   </header>
 
+  <!-- 页面切换 -->
+  <nav class="tabs">
+    <button class="tab active" data-page="stock">📦 在库物品</button>
+    <button class="tab" data-page="outbound">📤 出库记录</button>
+  </nav>
+
   <main>
-    <!-- 统计卡片 -->
-    <section class="stats" id="stats">
-      <div class="card"><div class="num" id="st-total">–</div><div class="label">在库记录</div></div>
+    <!-- ============ 页面一：在库物品 ============ -->
+    <section id="page-stock">
+      <!-- 统计卡片 -->
+      <section class="stats" id="stats">
+        <div class="card"><div class="num" id="st-total">–</div><div class="label">在库记录</div></div>
+        <div class="card muted"><div class="num" id="st-out-total">–</div><div class="label">出库记录</div></div>
+      </section>
+
+      <!-- 搜索 / 过滤 -->
+      <section class="toolbar">
+        <input id="search" type="search" placeholder="搜索名称、规格、存放位置、备注…" />
+        <select id="filter-category"><option value="">全部分类</option></select>
+        <select id="sort">
+          <option value="-inDate">入库日期（新→旧）</option>
+          <option value="inDate">入库日期（旧→新）</option>
+          <option value="name">按名称</option>
+        </select>
+      </section>
+
+      <!-- 列表 -->
+      <section id="list" class="grid"></section>
+      <div id="empty" class="hidden empty">还没有记录，点击右上角「入库登记」开始记录家里的茶叶、酒品吧。</div>
     </section>
 
-    <!-- 搜索 / 过滤 -->
-    <section class="toolbar">
-      <input id="search" type="search" placeholder="搜索名称、规格、存放位置、备注…" />
-      <select id="filter-category"><option value="">全部分类</option></select>
-      <select id="sort">
-        <option value="-inDate">入库日期（新→旧）</option>
-        <option value="inDate">入库日期（旧→新）</option>
-        <option value="name">按名称</option>
-      </select>
+    <!-- ============ 页面二：出库记录 ============ -->
+    <section id="page-outbound" class="hidden">
+      <section class="toolbar">
+        <input id="ob-search" type="search" placeholder="搜索名称、送给谁、事由、备注…" />
+        <select id="ob-filter-category"><option value="">全部分类</option></select>
+        <select id="ob-sort">
+          <option value="-outDate">出库日期（新→旧）</option>
+          <option value="outDate">出库日期（旧→新）</option>
+          <option value="name">按名称</option>
+        </select>
+      </section>
+      <section id="ob-list" class="grid"></section>
+      <div id="ob-empty" class="hidden empty">还没有出库记录。在「在库物品」页点击卡片上的「出库」即可登记送给谁。</div>
     </section>
-
-    <!-- 列表 -->
-    <section id="list" class="grid"></section>
-    <div id="empty" class="hidden empty">还没有记录，点击右上角「入库登记」开始记录家里的茶叶、酒品吧。</div>
   </main>
+
 
   <!-- 弹窗表单 -->
   <dialog id="dlg">
@@ -74,7 +100,43 @@
     </form>
   </dialog>
 
-  <footer class="foot">digital-warehouse · v0.4 精简版 · 数据存储于本地 data/items.json</footer>
+  <!-- 出库弹窗：登记送给谁 / 事由 -->
+  <dialog id="dlg-out">
+    <form id="out-form" method="dialog">
+      <h2>📤 出库登记</h2>
+      <p class="out-summary" id="out-summary"></p>
+      <div class="form-grid">
+        <label>送给谁 *<input name="recipient" required placeholder="例：王叔叔 / 李总" /></label>
+        <label>事由<input name="reason" placeholder="例：送礼 / 自饮 / 宴请" /></label>
+        <label>出库日期<input name="outDate" type="date" /></label>
+      </div>
+      <label class="full">备注<textarea name="notes" rows="2" placeholder="什么场合送的、还有回礼预期…"></textarea></label>
+      <div class="dlg-actions">
+        <button type="button" id="btn-out-cancel" class="btn ghost">取消</button>
+        <button type="submit" class="btn primary" id="btn-out-save">确认出库</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 编辑出库记录弹窗 -->
+  <dialog id="dlg-ob-edit">
+    <form id="ob-edit-form" method="dialog">
+      <h2>✏️ 编辑出库记录</h2>
+      <p class="out-summary" id="ob-edit-summary"></p>
+      <div class="form-grid">
+        <label>送给谁<input name="recipient" placeholder="例：王叔叔 / 李总" /></label>
+        <label>事由<input name="reason" placeholder="例：送礼 / 自饮 / 宴请" /></label>
+        <label>出库日期<input name="outDate" type="date" /></label>
+      </div>
+      <label class="full">备注<textarea name="notes" rows="2"></textarea></label>
+      <div class="dlg-actions">
+        <button type="button" id="btn-ob-cancel" class="btn ghost">取消</button>
+        <button type="submit" class="btn primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <footer class="foot">digital-warehouse · v0.5 精简版 · 数据存储于本地 data/items.json</footer>
   <script src="app.js"></script>
 </body>
 </html>

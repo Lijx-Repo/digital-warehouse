@@ -44,10 +44,26 @@ function seedItems() {
   ];
 }
 
+/* 出库记录种子数据（送给谁 / 事由） */
+function seedOutbound() {
+  const now = new Date().toISOString();
+  const mk = (name, category, spec, quantity, unit, inDate, outDate, recipient, reason, notes) => ({
+    id: crypto.randomUUID(),
+    name, category, spec, quantity, unit, inDate, outDate, recipient, reason, notes,
+    createdAt: now, updatedAt: now,
+  });
+  return [
+    mk('奔富 BIN407 红葡萄酒', '红酒', '750ml × 6 原箱', 1, '箱', '2024-03-10', '2025-05-18', '表哥', '婚宴用酒', '婚礼宴席开箱'),
+    mk('小罐茶·金骏眉', '茶叶', '100g 礼盒', 1, '盒', '2024-09-18', '2025-02-03', '李总', '送礼', ''),
+    mk('陈年女儿红黄酒', '白酒', '500ml 坛装', 2, '坛', '2024-01-15', '2025-01-22', '王叔叔', '送礼', '春节拜访长辈'),
+  ];
+}
+
 function migrate(db) {
   if (!Array.isArray(db.items)) db.items = [];
+  if (!Array.isArray(db.outbound)) db.outbound = [];
   if (!Array.isArray(db.categories) || db.categories.length === 0) db.categories = defaultCategories();
-  // 旧字段清理：只保留精简后的字段（出库即删除，不再保留 outDate）
+  // 在库物品字段：出库即移入「出库记录」，items 里不保留 outDate
   const keep = ['id','name','category','spec','quantity','unit','inDate','location','notes','createdAt','updatedAt'];
   for (const it of db.items) {
     for (const k of Object.keys(it)) if (!keep.includes(k)) delete it[k];
@@ -58,6 +74,19 @@ function migrate(db) {
     if (!it.spec) it.spec = '';
     if (!it.category) it.category = '其他';
   }
+  // 出库记录字段
+  const keepOut = ['id','name','category','spec','quantity','unit','inDate','outDate','recipient','reason','notes','createdAt','updatedAt'];
+  for (const it of db.outbound) {
+    for (const k of Object.keys(it)) if (!keepOut.includes(k)) delete it[k];
+    if (!it.outDate) it.outDate = (it.updatedAt || '').slice(0, 10);
+    if (typeof it.recipient !== 'string') it.recipient = '';
+    if (typeof it.reason !== 'string') it.reason = '';
+    if (typeof it.notes !== 'string') it.notes = '';
+    if (!it.spec) it.spec = '';
+    if (it.quantity == null) it.quantity = 1;
+    if (!it.unit) it.unit = '件';
+    if (!it.category) it.category = '其他';
+  }
   return db;
 }
 
@@ -66,7 +95,7 @@ function loadDB() {
     const raw = fs.readFileSync(DB_FILE, 'utf8');
     return migrate(JSON.parse(raw));
   } catch (e) {
-    return { items: seedItems(), categories: defaultCategories() };
+    return { items: seedItems(), outbound: seedOutbound(), categories: defaultCategories() };
   }
 }
 
@@ -138,6 +167,30 @@ function withMeta(it) {
   return { ...it, meta: timeInfo(it) };
 }
 
+/* 出库记录附加信息：在外时长（出库日期距今） */
+function outMeta(rec) {
+  const daysOut = rec.outDate ? daysBetween(rec.outDate, null) : null;
+  return { daysOut };
+}
+
+/* 通用列表查询：搜索 / 分类过滤 / 排序 */
+function queryList(list, q, dateKey) {
+  const kw = (q.get('q') || '').toLowerCase();
+  const cat = q.get('category') || '';
+  let out = list.slice();
+  if (cat) out = out.filter((it) => it.category === cat);
+  if (kw) {
+    out = out.filter((it) =>
+      [it.name, it.spec, it.location, it.recipient, it.reason, it.notes].join(' ').toLowerCase().includes(kw)
+    );
+  }
+  const sort = q.get('sort') || '-' + dateKey;
+  const dir = sort.startsWith('-') ? -1 : 1;
+  const key = sort.replace(/^-/, '');
+  out.sort((a, b) => String(a[key] || '').localeCompare(String(b[key] || '')) * dir);
+  return out;
+}
+
 function handleAPI(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', 'items', ':id', ...]
   const resource = parts[1];
@@ -156,6 +209,7 @@ function handleAPI(req, res, url) {
     });
     return sendJSON(res, 200, {
       total: db.items.length,
+      outboundTotal: db.outbound.length,
       byCategory,
     });
   }
@@ -168,24 +222,54 @@ function handleAPI(req, res, url) {
     return res.end(JSON.stringify(db, null, 2));
   }
 
+  /* ---------- 出库记录页 ---------- */
+  if (resource === 'outbound') {
+    const id = parts[2];
+
+    if (req.method === 'GET' && !id) {
+      const list = queryList(db.outbound, url.searchParams, 'outDate');
+      return sendJSON(res, 200, list.map((r) => ({ ...r, meta: outMeta(r) })));
+    }
+
+    if (req.method === 'GET' && id) {
+      const r = db.outbound.find((x) => x.id === id);
+      if (!r) return sendJSON(res, 404, { error: '未找到该出库记录' });
+      return sendJSON(res, 200, { ...r, meta: outMeta(r) });
+    }
+
+    if (req.method === 'PUT' && id) {
+      const idx = db.outbound.findIndex((x) => x.id === id);
+      if (idx === -1) return sendJSON(res, 404, { error: '未找到该出库记录' });
+      return readBody(req).then((body) => {
+        const s = (v) => (typeof v === 'string' ? v.trim() : '');
+        const old = db.outbound[idx];
+        const clean = {
+          recipient: s(body.recipient ?? old.recipient),
+          reason: s(body.reason ?? old.reason),
+          outDate: s(body.outDate ?? old.outDate),
+          notes: s(body.notes ?? old.notes),
+        };
+        const item = { ...old, ...clean, id, updatedAt: new Date().toISOString() };
+        db.outbound[idx] = item;
+        saveDB(db);
+        sendJSON(res, 200, { ...item, meta: outMeta(item) });
+      }).catch(() => sendJSON(res, 400, { error: '请求体 JSON 无效' }));
+    }
+
+    if (req.method === 'DELETE' && id) {
+      const idx = db.outbound.findIndex((x) => x.id === id);
+      if (idx === -1) return sendJSON(res, 404, { error: '未找到该出库记录' });
+      db.outbound.splice(idx, 1);
+      saveDB(db);
+      return sendJSON(res, 200, { ok: true });
+    }
+  }
+
   if (resource === 'items') {
     const id = parts[2];
 
     if (req.method === 'GET' && !id) {
-      const q = url.searchParams;
-      const kw = (q.get('q') || '').toLowerCase();
-      const cat = q.get('category') || '';
-      let list = db.items.slice();
-      if (cat) list = list.filter((it) => it.category === cat);
-      if (kw) {
-        list = list.filter((it) =>
-          [it.name, it.spec, it.location, it.notes].join(' ').toLowerCase().includes(kw)
-        );
-      }
-      const sort = q.get('sort') || '-inDate';
-      const dir = sort.startsWith('-') ? -1 : 1;
-      const key = sort.replace(/^-/, '');
-      list.sort((a, b) => String(a[key] || '').localeCompare(String(b[key] || '')) * dir);
+      const list = queryList(db.items, url.searchParams, 'inDate');
       return sendJSON(res, 200, list.map(withMeta));
     }
 
@@ -220,6 +304,36 @@ function handleAPI(req, res, url) {
         if (!db.categories.includes(item.category)) db.categories.push(item.category);
         saveDB(db);
         sendJSON(res, 200, withMeta(item));
+      }).catch(() => sendJSON(res, 400, { error: '请求体 JSON 无效' }));
+    }
+
+    /* POST /api/items/:id/out —— 出库：从在库列表移入「出库记录」 */
+    if (req.method === 'POST' && id && parts[3] === 'out') {
+      const idx = db.items.findIndex((x) => x.id === id);
+      if (idx === -1) return sendJSON(res, 404, { error: '未找到该记录' });
+      return readBody(req).then((body) => {
+        const s = (v) => (typeof v === 'string' ? v.trim() : '');
+        const src = db.items[idx];
+        const now = new Date().toISOString();
+        const record = {
+          id: src.id,
+          name: src.name,
+          category: src.category,
+          spec: src.spec,
+          quantity: src.quantity,
+          unit: src.unit,
+          inDate: src.inDate,
+          outDate: s(body.outDate) || now.slice(0, 10),
+          recipient: s(body.recipient),
+          reason: s(body.reason),
+          notes: s(body.notes),
+          createdAt: src.createdAt,
+          updatedAt: now,
+        };
+        db.items.splice(idx, 1);
+        db.outbound.unshift(record);
+        saveDB(db);
+        sendJSON(res, 200, { ...record, meta: outMeta(record) });
       }).catch(() => sendJSON(res, 400, { error: '请求体 JSON 无效' }));
     }
 
