@@ -16,39 +16,75 @@
       </div>
     </div>
     <div class="actions">
-      <button id="btn-export" class="btn ghost" title="导出全部数据为 JSON">⬇ 导出</button>
-      <button id="btn-new" class="btn primary">＋ 入库登记</button>
+      <button id="btn-export" class="btn ghost" title="导出全部数据为 JSON（密文备份）">⬇ 导出</button>
+      <button id="btn-passwd" class="btn ghost" title="修改访问密码">🔑 修改密码</button>
+      <button id="btn-lock" class="btn ghost hidden" title="锁定并退出">🔒 锁定</button>
+      <button id="btn-new" class="btn primary hidden">＋ 入库登记</button>
     </div>
   </header>
 
+  <!-- 密码锁屏：首次使用设置密码；之后输入密码解锁 -->
+  <section id="lock-screen" class="hidden">
+    <div class="lock-card">
+      <div class="lock-icon">🔐</div>
+      <h2 id="lock-title">设置访问密码</h2>
+      <p class="lock-hint" id="lock-hint">首次使用，请设置一个访问密码。数据将以 AES-256-GCM 加密存储，密码只以派生校验值保存——忘记将无法找回。</p>
+      <form id="lock-form">
+        <input id="lock-pwd" type="password" placeholder="访问密码（至少 4 位）" autocomplete="new-password" required minlength="4" />
+        <input id="lock-pwd2" type="password" placeholder="确认密码" autocomplete="new-password" required minlength="4" />
+        <button type="submit" class="btn primary" id="lock-submit">初始化并进入</button>
+      </form>
+      <p class="lock-error" id="lock-error"></p>
+    </div>
+  </section>
+
+  <!-- 页面切换 -->
+  <nav class="tabs hidden">
+    <button class="tab active" data-page="stock">📦 在库物品</button>
+    <button class="tab" data-page="outbound">📤 出库记录</button>
+  </nav>
+
   <main>
-    <!-- 统计卡片 -->
-    <section class="stats" id="stats">
-      <div class="card"><div class="num" id="st-total">–</div><div class="label">总记录</div></div>
-      <div class="card ok"><div class="num" id="st-in">–</div><div class="label">在库</div></div>
-      <div class="card muted"><div class="num" id="st-out">–</div><div class="label">已出库</div></div>
+    <!-- ============ 页面一：在库物品 ============ -->
+    <section id="page-stock">
+      <!-- 统计卡片 -->
+      <section class="stats" id="stats">
+        <div class="card"><div class="num" id="st-total">–</div><div class="label">在库记录</div></div>
+        <div class="card muted"><div class="num" id="st-out-total">–</div><div class="label">出库记录</div></div>
+      </section>
+
+      <!-- 搜索 / 过滤 -->
+      <section class="toolbar">
+        <input id="search" type="search" placeholder="搜索名称、规格、存放位置、备注…" />
+        <select id="filter-category"><option value="">全部分类</option></select>
+        <select id="sort">
+          <option value="-inDate">入库日期（新→旧）</option>
+          <option value="inDate">入库日期（旧→新）</option>
+          <option value="name">按名称</option>
+        </select>
+      </section>
+
+      <!-- 列表 -->
+      <section id="list" class="grid"></section>
+      <div id="empty" class="hidden empty">还没有记录，点击右上角「入库登记」开始记录家里的茶叶、酒品吧。</div>
     </section>
 
-    <!-- 搜索 / 过滤 -->
-    <section class="toolbar">
-      <input id="search" type="search" placeholder="搜索名称、规格、存放位置、备注…" />
-      <select id="filter-category"><option value="">全部分类</option></select>
-      <select id="filter-stock">
-        <option value="">全部状态</option>
-        <option value="in">仅看在库</option>
-        <option value="out">仅看已出库</option>
-      </select>
-      <select id="sort">
-        <option value="-inDate">入库日期（新→旧）</option>
-        <option value="inDate">入库日期（旧→新）</option>
-        <option value="name">按名称</option>
-      </select>
+    <!-- ============ 页面二：出库记录 ============ -->
+    <section id="page-outbound" class="hidden">
+      <section class="toolbar">
+        <input id="ob-search" type="search" placeholder="搜索名称、送给谁、事由、备注…" />
+        <select id="ob-filter-category"><option value="">全部分类</option></select>
+        <select id="ob-sort">
+          <option value="-outDate">出库日期（新→旧）</option>
+          <option value="outDate">出库日期（旧→新）</option>
+          <option value="name">按名称</option>
+        </select>
+      </section>
+      <section id="ob-list" class="grid"></section>
+      <div id="ob-empty" class="hidden empty">还没有出库记录。在「在库物品」页点击卡片上的「出库」即可登记送给谁。</div>
     </section>
-
-    <!-- 列表 -->
-    <section id="list" class="grid"></section>
-    <div id="empty" class="hidden empty">还没有记录，点击右上角「入库登记」开始记录家里的茶叶、酒品吧。</div>
   </main>
+
 
   <!-- 弹窗表单 -->
   <dialog id="dlg">
@@ -71,7 +107,6 @@
           </select>
         </label>
         <label>入库日期<input name="inDate" type="date" /></label>
-        <label>出库日期<input name="outDate" type="date" /><span class="hint">留空表示仍在库中</span></label>
         <label>存放位置<input name="location" placeholder="例：酒柜上层 / 茶室博古架" /></label>
       </div>
       <label class="full">备注<textarea name="notes" rows="2" placeholder="谁送的、准备送给谁、放在哪…"></textarea></label>
@@ -82,7 +117,61 @@
     </form>
   </dialog>
 
-  <footer class="foot">digital-warehouse · v0.3 精简版 · 数据存储于本地 data/items.json</footer>
+  <!-- 出库弹窗：登记送给谁 / 事由 -->
+  <dialog id="dlg-out">
+    <form id="out-form" method="dialog">
+      <h2>📤 出库登记</h2>
+      <p class="out-summary" id="out-summary"></p>
+      <div class="form-grid">
+        <label>送给谁 *<input name="recipient" required placeholder="例：王叔叔 / 李总" /></label>
+        <label>事由<input name="reason" placeholder="例：送礼 / 自饮 / 宴请" /></label>
+        <label>出库日期<input name="outDate" type="date" /></label>
+      </div>
+      <label class="full">备注<textarea name="notes" rows="2" placeholder="什么场合送的、还有回礼预期…"></textarea></label>
+      <div class="dlg-actions">
+        <button type="button" id="btn-out-cancel" class="btn ghost">取消</button>
+        <button type="submit" class="btn primary" id="btn-out-save">确认出库</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 编辑出库记录弹窗 -->
+  <dialog id="dlg-ob-edit">
+    <form id="ob-edit-form" method="dialog">
+      <h2>✏️ 编辑出库记录</h2>
+      <p class="out-summary" id="ob-edit-summary"></p>
+      <div class="form-grid">
+        <label>送给谁<input name="recipient" placeholder="例：王叔叔 / 李总" /></label>
+        <label>事由<input name="reason" placeholder="例：送礼 / 自饮 / 宴请" /></label>
+        <label>出库日期<input name="outDate" type="date" /></label>
+      </div>
+      <label class="full">备注<textarea name="notes" rows="2"></textarea></label>
+      <div class="dlg-actions">
+        <button type="button" id="btn-ob-cancel" class="btn ghost">取消</button>
+        <button type="submit" class="btn primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 修改密码弹窗 -->
+  <dialog id="dlg-passwd">
+    <form id="passwd-form" method="dialog">
+      <h2>🔑 修改访问密码</h2>
+      <p class="lock-hint">修改后将用新密码重新加密全部数据并原子写盘，旧会话立即失效。</p>
+      <div class="form-grid one-col">
+        <label>原密码 *<input name="oldPassword" type="password" required autocomplete="current-password" /></label>
+        <label>新密码 *（至少 4 位）<input name="newPassword" type="password" required minlength="4" autocomplete="new-password" /></label>
+        <label>确认新密码 *<input name="confirm" type="password" required minlength="4" autocomplete="new-password" /></label>
+      </div>
+      <p class="lock-error" id="passwd-error"></p>
+      <div class="dlg-actions">
+        <button type="button" id="btn-passwd-cancel" class="btn ghost">取消</button>
+        <button type="submit" class="btn primary">确认修改</button>
+      </div>
+    </form>
+  </dialog>
+
+  <footer class="foot">digital-warehouse · v0.6 · AES-256-GCM 加密存储于本地 data/items.json</footer>
   <script src="app.js"></script>
 </body>
 </html>
