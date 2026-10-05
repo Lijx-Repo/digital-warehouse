@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Digital Warehouse — 家庭数字仓库
+ * Digital Warehouse — 家庭礼品仓库（茶叶 / 酒品等送礼物品）
+ * 精简版：只管「入库、出库、时间追踪」，不记价格。
  * 零依赖 Node.js HTTP 服务：静态页面 + JSON API，数据持久化到 data/items.json
  */
 const http = require('http');
@@ -14,15 +15,58 @@ const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'items.json');
 
 /* ---------------- 数据层 ---------------- */
+function defaultCategories() {
+  return ['茶叶', '白酒', '红酒', '洋酒', '保健品', '香烟', '礼品', '食品', '其他'];
+}
+
+function seedItems() {
+  const now = new Date().toISOString();
+  const mk = (name, category, spec, quantity, unit, inDate, outDate, location, notes) => ({
+    id: crypto.randomUUID(),
+    name,
+    category,
+    spec,
+    quantity,
+    unit,
+    inDate,
+    outDate,
+    location,
+    notes,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return [
+    mk('西湖狮峰明前龙井（特级）', '茶叶', '250g 罐装', 2, '罐', '2025-04-05', '', '茶室博古架', '绿茶讲究鲜爽，建议半年内饮完'),
+    mk('贵州茅台酒', '白酒', '飞天 53%vol 500ml', 2, '瓶', '2024-12-10', '', '酒柜上层', '白酒越陈越香，适合长期存放'),
+    mk('大益普洱茶七子饼', '茶叶', '7572 熟茶 357g/饼', 3, '饼', '2023-09-15', '', '储藏室茶架', '原 5 饼，送出 2 饼后重新登记数量'),
+    mk('拉菲传奇波尔多红葡萄酒', '红酒', 'Légende 750ml', 6, '瓶', '2024-02-01', '', '酒柜下层', '日常宴请口粮酒'),
+    mk('东阿阿胶糕', '保健品', '即食片剂 500g 礼盒', 1, '盒', '2024-06-18', '2025-09-28', '储藏室', '中秋送长辈已用完'),
+    mk('中华香烟', '香烟', '硬盒整条', 1, '条', '2025-01-20', '', '客厅柜子', '春节备礼'),
+  ];
+}
+
+function migrate(db) {
+  if (!Array.isArray(db.items)) db.items = [];
+  if (!Array.isArray(db.categories) || db.categories.length === 0) db.categories = defaultCategories();
+  // 旧字段清理：只保留精简后的字段
+  const keep = ['id','name','category','spec','quantity','unit','inDate','outDate','location','notes','createdAt','updatedAt'];
+  for (const it of db.items) {
+    for (const k of Object.keys(it)) if (!keep.includes(k)) delete it[k];
+    if (!it.inDate && it.purchaseDate) it.inDate = it.purchaseDate; // 从旧数据迁移入库日期
+    if (!it.inDate) it.inDate = (it.createdAt || '').slice(0, 10);
+    if (it.outDate === undefined) it.outDate = '';
+    if (it.quantity == null) it.quantity = 1;
+    if (!it.unit) it.unit = '件';
+    if (!it.spec) it.spec = '';
+    if (!it.category) it.category = '其他';
+  }
+  return db;
+}
+
 function loadDB() {
   try {
     const raw = fs.readFileSync(DB_FILE, 'utf8');
-    const db = JSON.parse(raw);
-    if (!Array.isArray(db.items)) db.items = [];
-    if (!Array.isArray(db.categories) || db.categories.length === 0) {
-      db.categories = defaultCategories();
-    }
-    return db;
+    return migrate(JSON.parse(raw));
   } catch (e) {
     return { items: seedItems(), categories: defaultCategories() };
   }
@@ -35,191 +79,44 @@ function saveDB(db) {
   fs.renameSync(tmp, DB_FILE);
 }
 
-function defaultCategories() {
-  return ['茶叶', '白酒', '红酒', '洋酒', '保健品', '香烟', '礼品', '食品', '其他'];
-}
-
-const USAGE_STATUSES = ['在库', '部分送出', '已送出', '已饮用', '已食用', '已闲置', '已报废'];
-
-function seedItems() {
-  const now = new Date().toISOString();
-  return [
-    {
-      id: crypto.randomUUID(),
-      name: '西湖狮峰明前龙井（特级）',
-      category: '茶叶',
-      brand: '狮峰牌',
-      model: '清明前 · 手工炒制 · 罐装 250g',
-      serial: '',
-      purchaseDate: '2025-04-05',
-      price: 880,
-      currency: 'CNY',
-      store: '茶叶专卖店',
-      warrantyMonths: null,
-      productionDate: '2025-04-02',
-      expiryDate: '2026-12-04',
-      storage: '密封避光，冰箱冷藏（0~5℃）',
-      valuePerUnit: 880,
-      location: '茶室博古架',
-      quantity: 2,
-      unit: '罐',
-      status: '在库',
-      condition: '全新',
-      notes: '绿茶讲究鲜爽，建议半年内饮完；送礼体面之选',
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: crypto.randomUUID(),
-      name: '贵州茅台酒',
-      category: '白酒',
-      brand: '茅台',
-      model: '飞天 53%vol 500ml',
-      serial: '防伪码见瓶盖',
-      purchaseDate: '2024-12-10',
-      price: 2899,
-      currency: 'CNY',
-      store: '茅台官方渠道',
-      warrantyMonths: null,
-      productionDate: '2024-11-20',
-      expiryDate: '',
-      storage: '直立、避光、阴凉处（温度不超过 30℃）',
-      valuePerUnit: 2899,
-      location: '酒柜上层',
-      quantity: 2,
-      unit: '瓶',
-      status: '在库',
-      condition: '全新',
-      notes: '白酒无保质期，越陈越香，适合长期收藏',
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: crypto.randomUUID(),
-      name: '大益普洱茶七子饼',
-      category: '茶叶',
-      brand: '大益',
-      model: '7572 熟茶 · 357g/饼',
-      serial: '',
-      purchaseDate: '2023-09-15',
-      price: 420,
-      currency: 'CNY',
-      store: '品牌旗舰店',
-      warrantyMonths: null,
-      productionDate: '2023-06-18',
-      expiryDate: '',
-      storage: '陶罐/紫砂缸存放，通风干燥、远离异味',
-      valuePerUnit: 420,
-      location: '储藏室茶架',
-      quantity: 3,
-      unit: '饼',
-      status: '部分送出',
-      condition: '良好',
-      notes: '普洱可长期陈化，随年份增值；剩余 3 饼（原 5 饼，送出 2 饼）',
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: crypto.randomUUID(),
-      name: '拉菲传奇波尔多红葡萄酒',
-      category: '红酒',
-      brand: 'Lafite',
-      model: 'Légende 2019 · 750ml',
-      serial: '',
-      purchaseDate: '2024-02-01',
-      price: 368,
-      currency: 'CNY',
-      store: '酒便利',
-      warrantyMonths: null,
-      productionDate: '2019-01-01',
-      expiryDate: '2029-01-01',
-      storage: '横放，恒温 12~16℃、避光、避震',
-      valuePerUnit: 368,
-      location: '酒柜下层',
-      quantity: 6,
-      unit: '瓶',
-      status: '在库',
-      condition: '全新',
-      notes: '日常宴请口粮酒，整箱购入按瓶记价',
-      createdAt: now,
-      updatedAt: now,
-    },
-  ];
-}
-
 let db = loadDB();
 saveDB(db); // 首次运行时落盘种子数据
 
 /* ---------------- 工具函数 ---------------- */
-const CONDITIONS = ['全新', '良好', '一般', '故障', '已报废'];
-
 function sanitizeItem(body) {
   const s = (v) => (typeof v === 'string' ? v.trim() : '');
-  const num = (v) => (v === '' || v == null ? null : Number(v));
-  const item = {
+  const num = (v) => {
+    const n = Number(v);
+    return v === '' || v == null || isNaN(n) ? 1 : Math.max(0, Math.floor(n));
+  };
+  return {
     name: s(body.name),
     category: s(body.category) || '其他',
-    brand: s(body.brand),
-    model: s(body.model),
-    serial: s(body.serial),
-    purchaseDate: s(body.purchaseDate),
-    price: num(body.price),
-    currency: s(body.currency) || 'CNY',
-    store: s(body.store),
-    warrantyMonths: num(body.warrantyMonths),
-    productionDate: s(body.productionDate),
-    expiryDate: s(body.expiryDate),
-    storage: s(body.storage),
-    valuePerUnit: num(body.valuePerUnit),
-    location: s(body.location),
-    quantity: num(body.quantity) ?? 1,
+    spec: s(body.spec),
+    quantity: num(body.quantity),
     unit: s(body.unit) || '件',
-    status: USAGE_STATUSES.includes(s(body.status)) ? s(body.status) : '在库',
-    condition: CONDITIONS.includes(s(body.condition)) ? s(body.condition) : '良好',
+    inDate: s(body.inDate),
+    outDate: s(body.outDate),
+    location: s(body.location),
     notes: s(body.notes),
   };
-  return item;
 }
 
-function warrantyInfo(item) {
-  if (!item.purchaseDate || !item.warrantyMonths) return { status: '未知', daysLeft: null };
-  const start = new Date(item.purchaseDate);
-  if (isNaN(start)) return { status: '未知', daysLeft: null };
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + Number(item.warrantyMonths));
-  const daysLeft = Math.ceil((end - Date.now()) / 86400000);
-  let status;
-  if (daysLeft < 0) status = '已过保';
-  else if (daysLeft <= 90) status = '即将过保';
-  else status = '保修中';
-  return { status, daysLeft, endDate: end.toISOString().slice(0, 10) };
+/* 时间追踪：在库时长（天）。出库记录算到出库日，在库记录算到今天 */
+function daysBetween(fromISO, toISO) {
+  const a = new Date(fromISO);
+  const b = toISO ? new Date(toISO) : new Date();
+  if (isNaN(a) || (toISO && isNaN(b))) return null;
+  return Math.max(0, Math.floor((b - a) / 86400000));
 }
 
-/* 保质期：茶叶/食品/保健品看 expiryDate；白酒/普洱等可陈化物品留空即不提醒 */
-function shelfLifeInfo(item) {
-  if (!item.expiryDate) return { status: '无', daysLeft: null };
-  const end = new Date(item.expiryDate);
-  if (isNaN(end)) return { status: '未知', daysLeft: null };
-  const daysLeft = Math.ceil((end - Date.now()) / 86400000);
-  let status;
-  if (daysLeft < 0) status = '已过期';
-  else if (daysLeft <= 90) status = '临期';
-  else status = '保质期内';
-  return { status, daysLeft };
+function timeInfo(item) {
+  const daysIn = item.inDate ? daysBetween(item.inDate, item.outDate || null) : null;
+  return { daysIn };
 }
 
-/* 总价值只计在库部分：已送出/已饮用的不计入家庭资产 */
-const OUT_OF_STOCK = ['已送出', '已饮用', '已食用', '已报废'];
-
-function itemValue(it) {
-  if (OUT_OF_STOCK.includes(it.status)) return 0;
-  const unit = it.valuePerUnit != null ? it.valuePerUnit : it.price;
-  const qty = it.quantity || 1;
-  return unit && qty ? unit * qty : 0;
-}
-
-function totalValue(items) {
-  return items.reduce((sum, it) => sum + itemValue(it), 0);
+function isInStock(it) {
+  return !it.outDate;
 }
 
 function sendJSON(res, code, obj) {
@@ -244,8 +141,12 @@ function readBody(req) {
 }
 
 /* ---------------- API ---------------- */
+function withMeta(it) {
+  return { ...it, meta: timeInfo(it), inStock: isInStock(it) };
+}
+
 function handleAPI(req, res, url) {
-  const parts = url.pathname.split('/').filter(Boolean); // ['api', 'items', ':id']
+  const parts = url.pathname.split('/').filter(Boolean); // ['api', 'items', ':id', ...]
   const resource = parts[1];
 
   if (resource === 'categories' && req.method === 'GET') {
@@ -256,16 +157,15 @@ function handleAPI(req, res, url) {
     const byCategory = {};
     db.items.forEach((it) => {
       const c = it.category || '其他';
-      byCategory[c] = (byCategory[c] || 0) + itemValue(it);
+      const cur = byCategory[c] || { in: 0, out: 0 };
+      if (isInStock(it)) cur.in += it.quantity || 1; else cur.out += it.quantity || 1;
+      byCategory[c] = cur;
     });
-    const expiringSoon = db.items.filter((it) => shelfLifeInfo(it).status === '临期').length;
-    const expired = db.items.filter((it) => shelfLifeInfo(it).status === '已过期').length;
     return sendJSON(res, 200, {
-      count: db.items.length,
-      totalValue: totalValue(db.items),
+      total: db.items.length,
+      inStockCount: db.items.filter(isInStock).length,
+      outStockCount: db.items.filter((it) => !isInStock(it)).length,
       byCategory,
-      expiringSoon,
-      expired,
     });
   }
 
@@ -280,49 +180,72 @@ function handleAPI(req, res, url) {
   if (resource === 'items') {
     const id = parts[2];
 
+    /* 快捷出库：把记录的 outDate 设为指定日期（默认今天） */
+    if (req.method === 'POST' && id && parts[3] === 'out') {
+      const it = db.items.find((x) => x.id === id);
+      if (!it) return sendJSON(res, 404, { error: '未找到该记录' });
+      return readBody(req).then((body) => {
+        it.outDate = (typeof body.date === 'string' && body.date.trim()) || new Date().toISOString().slice(0, 10);
+        it.updatedAt = new Date().toISOString();
+        saveDB(db);
+        sendJSON(res, 200, withMeta(it));
+      }).catch(() => sendJSON(res, 400, { error: '请求体 JSON 无效' }));
+    }
+
+    /* 撤销出库：恢复为在库 */
+    if (req.method === 'POST' && id && parts[3] === 'in') {
+      const it = db.items.find((x) => x.id === id);
+      if (!it) return sendJSON(res, 404, { error: '未找到该记录' });
+      it.outDate = '';
+      it.updatedAt = new Date().toISOString();
+      saveDB(db);
+      return sendJSON(res, 200, withMeta(it));
+    }
+
     if (req.method === 'GET' && !id) {
       const q = url.searchParams;
       const kw = (q.get('q') || '').toLowerCase();
       const cat = q.get('category') || '';
+      const stock = q.get('stock') || ''; // in | out | ''
       let list = db.items.slice();
       if (cat) list = list.filter((it) => it.category === cat);
+      if (stock === 'in') list = list.filter(isInStock);
+      if (stock === 'out') list = list.filter((it) => !isInStock(it));
       if (kw) {
         list = list.filter((it) =>
-          [it.name, it.brand, it.model, it.serial, it.location, it.store, it.storage, it.notes]
-            .join(' ')
-            .toLowerCase()
-            .includes(kw)
+          [it.name, it.spec, it.location, it.notes].join(' ').toLowerCase().includes(kw)
         );
       }
-      const sort = q.get('sort') || 'updatedAt';
-      list.sort((a, b) => String(b[sort] || '').localeCompare(String(a[sort] || '')));
-      return sendJSON(res, 200, list.map((it) => ({ ...it, warranty: warrantyInfo(it), shelfLife: shelfLifeInfo(it) })));
+      const sort = q.get('sort') || '-inDate';
+      const dir = sort.startsWith('-') ? -1 : 1;
+      const key = sort.replace(/^-/, '');
+      list.sort((a, b) => String(a[key] || '').localeCompare(String(b[key] || '')) * dir);
+      return sendJSON(res, 200, list.map(withMeta));
     }
 
     if (req.method === 'GET' && id) {
       const it = db.items.find((x) => x.id === id);
-      if (!it) return sendJSON(res, 404, { error: '未找到该物品' });
-      return sendJSON(res, 200, { ...it, warranty: warrantyInfo(it), shelfLife: shelfLifeInfo(it) });
+      if (!it) return sendJSON(res, 404, { error: '未找到该记录' });
+      return sendJSON(res, 200, withMeta(it));
     }
 
-    if (req.method === 'POST') {
+    if (req.method === 'POST' && !id) {
       return readBody(req).then((body) => {
         const clean = sanitizeItem(body);
         if (!clean.name) return sendJSON(res, 400, { error: '名称为必填项' });
+        if (!clean.inDate) clean.inDate = new Date().toISOString().slice(0, 10); // 默认今天入库
         const now = new Date().toISOString();
         const item = { id: crypto.randomUUID(), ...clean, createdAt: now, updatedAt: now };
         db.items.push(item);
-        if (!db.categories.includes(item.category)) {
-          db.categories.push(item.category);
-        }
+        if (!db.categories.includes(item.category)) db.categories.push(item.category);
         saveDB(db);
-        sendJSON(res, 201, { ...item, warranty: warrantyInfo(item), shelfLife: shelfLifeInfo(item) });
+        sendJSON(res, 201, withMeta(item));
       }).catch(() => sendJSON(res, 400, { error: '请求体 JSON 无效' }));
     }
 
     if (req.method === 'PUT' && id) {
       const idx = db.items.findIndex((x) => x.id === id);
-      if (idx === -1) return sendJSON(res, 404, { error: '未找到该物品' });
+      if (idx === -1) return sendJSON(res, 404, { error: '未找到该记录' });
       return readBody(req).then((body) => {
         const clean = sanitizeItem({ ...db.items[idx], ...body });
         if (!clean.name) return sendJSON(res, 400, { error: '名称为必填项' });
@@ -330,13 +253,13 @@ function handleAPI(req, res, url) {
         db.items[idx] = item;
         if (!db.categories.includes(item.category)) db.categories.push(item.category);
         saveDB(db);
-        sendJSON(res, 200, { ...item, warranty: warrantyInfo(item), shelfLife: shelfLifeInfo(item) });
+        sendJSON(res, 200, withMeta(item));
       }).catch(() => sendJSON(res, 400, { error: '请求体 JSON 无效' }));
     }
 
     if (req.method === 'DELETE' && id) {
       const idx = db.items.findIndex((x) => x.id === id);
-      if (idx === -1) return sendJSON(res, 404, { error: '未找到该物品' });
+      if (idx === -1) return sendJSON(res, 404, { error: '未找到该记录' });
       db.items.splice(idx, 1);
       saveDB(db);
       return sendJSON(res, 200, { ok: true });
