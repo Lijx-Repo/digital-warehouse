@@ -1,0 +1,2 @@
+# digital-warehouse
+A project aiming to enable families to manage all the expensive stuff in the household
