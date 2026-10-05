@@ -1,0 +1,22 @@
+{
+  "name": "digital-warehouse",
+  "version": "0.1.0",
+  "description": "A project aiming to enable families to manage all the expensive stuff in the household. 帮助家庭管理所有贵重物品的数字仓库。",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "household",
+    "inventory",
+    "family",
+    "asset-management",
+    "warranty"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "GPL-3.0-only",
+  "dependencies": {}
+}
