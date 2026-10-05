@@ -29,11 +29,9 @@ async function loadItems() {
   const params = new URLSearchParams();
   const kw = $('#search').value.trim();
   const cat = $('#filter-category').value;
-  const stock = $('#filter-stock').value;
   const sort = $('#sort').value;
   if (kw) params.set('q', kw);
   if (cat) params.set('category', cat);
-  if (stock) params.set('stock', stock);
   params.set('sort', sort);
   state.items = await api('/api/items?' + params.toString());
   renderList();
@@ -43,8 +41,6 @@ async function loadItems() {
 async function loadStats() {
   const s = await api('/api/stats');
   $('#st-total').textContent = s.total;
-  $('#st-in').textContent = s.inStockCount;
-  $('#st-out').textContent = s.outStockCount;
 }
 
 /* ---------- 渲染 ---------- */
@@ -62,17 +58,10 @@ function timeBadge(it) {
   if (d == null) return '';
   const years = Math.floor(d / 365);
   const dur = years >= 1 ? `${years}年${Math.floor((d % 365) / 30)}个月` : (d >= 30 ? `${Math.floor(d / 30)}个月（${d}天）` : `${d}天`);
-  if (it.outDate) return `<span class="badge muted">🕐 存放 ${dur}</span>`;
   if (d > 365 && ['茶叶', '食品', '保健品'].includes(it.category)) {
     return `<span class="badge warn">⏳ 已存放 ${dur}，注意赏味期</span>`;
   }
   return `<span class="badge ok">🕐 已存放 ${dur}</span>`;
-}
-
-function stockBadge(it) {
-  return it.inStock
-    ? '<span class="badge ok">📥 在库</span>'
-    : `<span class="badge muted">📤 已出库 · ${esc(it.outDate)}</span>`;
 }
 
 function renderList() {
@@ -84,7 +73,7 @@ function renderList() {
   }
   $('#empty').classList.add('hidden');
   list.innerHTML = state.items.map((it) => `
-    <article class="item ${it.inStock ? '' : 'out'}" data-id="${it.id}">
+    <article class="item" data-id="${it.id}">
       <div class="item-head">
         <h3 class="item-name">${catIcon(it.category)} ${esc(it.name)} ×${it.quantity}${esc(it.unit || '')}</h3>
         <span class="item-cat">${esc(it.category)}</span>
@@ -92,17 +81,13 @@ function renderList() {
       <div class="meta">
         ${it.spec ? `<b>${esc(it.spec)}</b><br>` : ''}
         📥 入库：${esc(it.inDate || '—')}${it.location ? ' · 📍 ' + esc(it.location) : ''}<br>
-        ${it.outDate ? `📤 出库：${esc(it.outDate)}<br>` : ''}
         ${it.notes ? `📝 ${esc(it.notes)}` : ''}
       </div>
       <div class="badges">
-        ${stockBadge(it)}
         ${timeBadge(it)}
       </div>
       <div class="row-actions">
-        ${it.inStock
-          ? '<button class="btn out small" data-act="out">📤 出库</button>'
-          : '<button class="btn ghost small" data-act="in">↩ 撤销出库</button>'}
+        <button class="btn out small" data-act="out">📤 出库</button>
         <span class="spacer"></span>
         <button class="btn ghost small" data-act="edit">编辑</button>
         <button class="btn danger-ghost small" data-act="del">删除</button>
@@ -118,7 +103,7 @@ function openDialog(item) {
   f.reset();
   $('#new-category').classList.add('hidden');
   if (item) {
-    for (const k of ['name','spec','quantity','unit','inDate','outDate','location','notes']) {
+    for (const k of ['name','spec','quantity','unit','inDate','location','notes']) {
       if (f.elements[k]) f.elements[k].value = item[k] ?? '';
     }
     if (state.categories.includes(item.category)) f.elements.category.value = item.category;
@@ -161,7 +146,6 @@ $('#form-category').addEventListener('change', (e) => {
 let debounce;
 $('#search').addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(loadItems, 250); });
 $('#filter-category').addEventListener('change', loadItems);
-$('#filter-stock').addEventListener('change', loadItems);
 $('#sort').addEventListener('change', loadItems);
 
 $('#list').addEventListener('click', async (e) => {
@@ -173,12 +157,9 @@ $('#list').addEventListener('click', async (e) => {
   try {
     if (act === 'edit') return openDialog(item);
     if (act === 'out') {
-      const date = prompt(`「${item.name}」出库日期（留空默认今天）`, new Date().toISOString().slice(0, 10));
-      if (date === null) return;
-      await api(`/api/items/${id}/out`, { method: 'POST', body: JSON.stringify({ date }) });
-    }
-    if (act === 'in') {
-      await api(`/api/items/${id}/in`, { method: 'POST', body: '{}' });
+      /* 出库确认：确认后记录直接从列表消失 */
+      if (!confirm(`确定将「${item.name} ×${item.quantity}${item.unit || ''}」出库吗？`)) return;
+      await api('/api/items/' + id, { method: 'DELETE' });
     }
     if (act === 'del') {
       if (!confirm(`确定删除「${item.name}」吗？`)) return;

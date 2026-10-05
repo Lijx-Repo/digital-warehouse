@@ -21,7 +21,7 @@ function defaultCategories() {
 
 function seedItems() {
   const now = new Date().toISOString();
-  const mk = (name, category, spec, quantity, unit, inDate, outDate, location, notes) => ({
+  const mk = (name, category, spec, quantity, unit, inDate, location, notes) => ({
     id: crypto.randomUUID(),
     name,
     category,
@@ -29,32 +29,30 @@ function seedItems() {
     quantity,
     unit,
     inDate,
-    outDate,
     location,
     notes,
     createdAt: now,
     updatedAt: now,
   });
   return [
-    mk('西湖狮峰明前龙井（特级）', '茶叶', '250g 罐装', 2, '罐', '2025-04-05', '', '茶室博古架', '绿茶讲究鲜爽，建议半年内饮完'),
-    mk('贵州茅台酒', '白酒', '飞天 53%vol 500ml', 2, '瓶', '2024-12-10', '', '酒柜上层', '白酒越陈越香，适合长期存放'),
-    mk('大益普洱茶七子饼', '茶叶', '7572 熟茶 357g/饼', 3, '饼', '2023-09-15', '', '储藏室茶架', '原 5 饼，送出 2 饼后重新登记数量'),
-    mk('拉菲传奇波尔多红葡萄酒', '红酒', 'Légende 750ml', 6, '瓶', '2024-02-01', '', '酒柜下层', '日常宴请口粮酒'),
-    mk('东阿阿胶糕', '保健品', '即食片剂 500g 礼盒', 1, '盒', '2024-06-18', '2025-09-28', '储藏室', '中秋送长辈已用完'),
-    mk('中华香烟', '香烟', '硬盒整条', 1, '条', '2025-01-20', '', '客厅柜子', '春节备礼'),
+    mk('西湖狮峰明前龙井（特级）', '茶叶', '250g 罐装', 2, '罐', '2025-04-05', '茶室博古架', '绿茶讲究鲜爽，建议半年内饮完'),
+    mk('贵州茅台酒', '白酒', '飞天 53%vol 500ml', 2, '瓶', '2024-12-10', '酒柜上层', '白酒越陈越香，适合长期存放'),
+    mk('大益普洱茶七子饼', '茶叶', '7572 熟茶 357g/饼', 3, '饼', '2023-09-15', '储藏室茶架', '适合边存边喝'),
+    mk('拉菲传奇波尔多红葡萄酒', '红酒', 'Légende 750ml', 6, '瓶', '2024-02-01', '酒柜下层', '日常宴请口粮酒'),
+    mk('东阿阿胶糕', '保健品', '即食片剂 500g 礼盒', 1, '盒', '2024-06-18', '储藏室', '中秋送长辈'),
+    mk('中华香烟', '香烟', '硬盒整条', 1, '条', '2025-01-20', '客厅柜子', '春节备礼'),
   ];
 }
 
 function migrate(db) {
   if (!Array.isArray(db.items)) db.items = [];
   if (!Array.isArray(db.categories) || db.categories.length === 0) db.categories = defaultCategories();
-  // 旧字段清理：只保留精简后的字段
-  const keep = ['id','name','category','spec','quantity','unit','inDate','outDate','location','notes','createdAt','updatedAt'];
+  // 旧字段清理：只保留精简后的字段（出库即删除，不再保留 outDate）
+  const keep = ['id','name','category','spec','quantity','unit','inDate','location','notes','createdAt','updatedAt'];
   for (const it of db.items) {
     for (const k of Object.keys(it)) if (!keep.includes(k)) delete it[k];
     if (!it.inDate && it.purchaseDate) it.inDate = it.purchaseDate; // 从旧数据迁移入库日期
     if (!it.inDate) it.inDate = (it.createdAt || '').slice(0, 10);
-    if (it.outDate === undefined) it.outDate = '';
     if (it.quantity == null) it.quantity = 1;
     if (!it.unit) it.unit = '件';
     if (!it.spec) it.spec = '';
@@ -96,13 +94,12 @@ function sanitizeItem(body) {
     quantity: num(body.quantity),
     unit: s(body.unit) || '件',
     inDate: s(body.inDate),
-    outDate: s(body.outDate),
     location: s(body.location),
     notes: s(body.notes),
   };
 }
 
-/* 时间追踪：在库时长（天）。出库记录算到出库日，在库记录算到今天 */
+/* 时间追踪：在库时长（天），入库日期到今天 */
 function daysBetween(fromISO, toISO) {
   const a = new Date(fromISO);
   const b = toISO ? new Date(toISO) : new Date();
@@ -111,12 +108,8 @@ function daysBetween(fromISO, toISO) {
 }
 
 function timeInfo(item) {
-  const daysIn = item.inDate ? daysBetween(item.inDate, item.outDate || null) : null;
+  const daysIn = item.inDate ? daysBetween(item.inDate, null) : null;
   return { daysIn };
-}
-
-function isInStock(it) {
-  return !it.outDate;
 }
 
 function sendJSON(res, code, obj) {
@@ -142,7 +135,7 @@ function readBody(req) {
 
 /* ---------------- API ---------------- */
 function withMeta(it) {
-  return { ...it, meta: timeInfo(it), inStock: isInStock(it) };
+  return { ...it, meta: timeInfo(it) };
 }
 
 function handleAPI(req, res, url) {
@@ -157,14 +150,12 @@ function handleAPI(req, res, url) {
     const byCategory = {};
     db.items.forEach((it) => {
       const c = it.category || '其他';
-      const cur = byCategory[c] || { in: 0, out: 0 };
-      if (isInStock(it)) cur.in += it.quantity || 1; else cur.out += it.quantity || 1;
+      const cur = byCategory[c] || { in: 0 };
+      cur.in += it.quantity || 1;
       byCategory[c] = cur;
     });
     return sendJSON(res, 200, {
       total: db.items.length,
-      inStockCount: db.items.filter(isInStock).length,
-      outStockCount: db.items.filter((it) => !isInStock(it)).length,
       byCategory,
     });
   }
@@ -180,37 +171,12 @@ function handleAPI(req, res, url) {
   if (resource === 'items') {
     const id = parts[2];
 
-    /* 快捷出库：把记录的 outDate 设为指定日期（默认今天） */
-    if (req.method === 'POST' && id && parts[3] === 'out') {
-      const it = db.items.find((x) => x.id === id);
-      if (!it) return sendJSON(res, 404, { error: '未找到该记录' });
-      return readBody(req).then((body) => {
-        it.outDate = (typeof body.date === 'string' && body.date.trim()) || new Date().toISOString().slice(0, 10);
-        it.updatedAt = new Date().toISOString();
-        saveDB(db);
-        sendJSON(res, 200, withMeta(it));
-      }).catch(() => sendJSON(res, 400, { error: '请求体 JSON 无效' }));
-    }
-
-    /* 撤销出库：恢复为在库 */
-    if (req.method === 'POST' && id && parts[3] === 'in') {
-      const it = db.items.find((x) => x.id === id);
-      if (!it) return sendJSON(res, 404, { error: '未找到该记录' });
-      it.outDate = '';
-      it.updatedAt = new Date().toISOString();
-      saveDB(db);
-      return sendJSON(res, 200, withMeta(it));
-    }
-
     if (req.method === 'GET' && !id) {
       const q = url.searchParams;
       const kw = (q.get('q') || '').toLowerCase();
       const cat = q.get('category') || '';
-      const stock = q.get('stock') || ''; // in | out | ''
       let list = db.items.slice();
       if (cat) list = list.filter((it) => it.category === cat);
-      if (stock === 'in') list = list.filter(isInStock);
-      if (stock === 'out') list = list.filter((it) => !isInStock(it));
       if (kw) {
         list = list.filter((it) =>
           [it.name, it.spec, it.location, it.notes].join(' ').toLowerCase().includes(kw)

@@ -1,0 +1,80 @@
+{
+  "items": [
+    {
+      "id": "79e30b86-a7d9-4bdf-bf8f-acbb5bd48676",
+      "name": "贵州茅台酒",
+      "category": "白酒",
+      "spec": "飞天 53%vol 500ml",
+      "quantity": 2,
+      "unit": "瓶",
+      "inDate": "2024-12-10",
+      "location": "酒柜上层",
+      "notes": "白酒越陈越香，适合长期存放",
+      "createdAt": "2026-10-05T05:04:00.636Z",
+      "updatedAt": "2026-10-05T05:04:00.636Z"
+    },
+    {
+      "id": "e0ecf94d-0dc6-412f-9feb-638675afd421",
+      "name": "大益普洱茶七子饼",
+      "category": "茶叶",
+      "spec": "7572 熟茶 357g/饼",
+      "quantity": 3,
+      "unit": "饼",
+      "inDate": "2023-09-15",
+      "location": "储藏室茶架",
+      "notes": "适合边存边喝",
+      "createdAt": "2026-10-05T05:04:00.636Z",
+      "updatedAt": "2026-10-05T05:04:00.636Z"
+    },
+    {
+      "id": "00397ec9-5cbc-47ee-99fd-8afa9f4b634d",
+      "name": "拉菲传奇波尔多红葡萄酒",
+      "category": "红酒",
+      "spec": "Légende 750ml",
+      "quantity": 6,
+      "unit": "瓶",
+      "inDate": "2024-02-01",
+      "location": "酒柜下层",
+      "notes": "日常宴请口粮酒",
+      "createdAt": "2026-10-05T05:04:00.636Z",
+      "updatedAt": "2026-10-05T05:04:00.636Z"
+    },
+    {
+      "id": "2fae5eef-6ff0-4e71-897e-59729a9566b1",
+      "name": "东阿阿胶糕",
+      "category": "保健品",
+      "spec": "即食片剂 500g 礼盒",
+      "quantity": 1,
+      "unit": "盒",
+      "inDate": "2024-06-18",
+      "location": "储藏室",
+      "notes": "中秋送长辈",
+      "createdAt": "2026-10-05T05:04:00.636Z",
+      "updatedAt": "2026-10-05T05:04:00.636Z"
+    },
+    {
+      "id": "d811fc69-bae2-4632-8b8d-df93ff716df8",
+      "name": "中华香烟",
+      "category": "香烟",
+      "spec": "硬盒整条",
+      "quantity": 1,
+      "unit": "条",
+      "inDate": "2025-01-20",
+      "location": "客厅柜子",
+      "notes": "春节备礼",
+      "createdAt": "2026-10-05T05:04:00.636Z",
+      "updatedAt": "2026-10-05T05:04:00.636Z"
+    }
+  ],
+  "categories": [
+    "茶叶",
+    "白酒",
+    "红酒",
+    "洋酒",
+    "保健品",
+    "香烟",
+    "礼品",
+    "食品",
+    "其他"
+  ]
+}

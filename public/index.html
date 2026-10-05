@@ -24,20 +24,13 @@
   <main>
     <!-- 统计卡片 -->
     <section class="stats" id="stats">
-      <div class="card"><div class="num" id="st-total">–</div><div class="label">总记录</div></div>
-      <div class="card ok"><div class="num" id="st-in">–</div><div class="label">在库</div></div>
-      <div class="card muted"><div class="num" id="st-out">–</div><div class="label">已出库</div></div>
+      <div class="card"><div class="num" id="st-total">–</div><div class="label">在库记录</div></div>
     </section>
 
     <!-- 搜索 / 过滤 -->
     <section class="toolbar">
       <input id="search" type="search" placeholder="搜索名称、规格、存放位置、备注…" />
       <select id="filter-category"><option value="">全部分类</option></select>
-      <select id="filter-stock">
-        <option value="">全部状态</option>
-        <option value="in">仅看在库</option>
-        <option value="out">仅看已出库</option>
-      </select>
       <select id="sort">
         <option value="-inDate">入库日期（新→旧）</option>
         <option value="inDate">入库日期（旧→新）</option>
@@ -71,7 +64,6 @@
           </select>
         </label>
         <label>入库日期<input name="inDate" type="date" /></label>
-        <label>出库日期<input name="outDate" type="date" /><span class="hint">留空表示仍在库中</span></label>
         <label>存放位置<input name="location" placeholder="例：酒柜上层 / 茶室博古架" /></label>
       </div>
       <label class="full">备注<textarea name="notes" rows="2" placeholder="谁送的、准备送给谁、放在哪…"></textarea></label>
@@ -82,7 +74,7 @@
     </form>
   </dialog>
 
-  <footer class="foot">digital-warehouse · v0.3 精简版 · 数据存储于本地 data/items.json</footer>
+  <footer class="foot">digital-warehouse · v0.4 精简版 · 数据存储于本地 data/items.json</footer>
   <script src="app.js"></script>
 </body>
 </html>
