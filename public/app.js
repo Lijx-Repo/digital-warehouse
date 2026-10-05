@@ -1,22 +1,154 @@
-/* Digital Warehouse 前端逻辑 —— 精简版：在库物品 + 出库记录（送给谁） */
+/* Digital Warehouse 前端逻辑 —— 精简版：在库物品 + 出库记录（送给谁）+ 密码保护/加密存储 */
 const $ = (sel) => document.querySelector(sel);
+
+const TOKEN_KEY = 'dw-token';
 
 const state = {
   items: [], categories: [], editingId: null,
   outbound: [], obEditingId: null, outTargetId: null,
   page: 'stock', // 'stock' | 'outbound'
+  mode: 'init',  // 锁屏模式：'init' 设置初始密码 | 'unlock' 解锁
+  token: localStorage.getItem(TOKEN_KEY) || '',
 };
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  });
+  const headers = { 'Content-Type': 'application/json' };
+  if (state.token) headers.Authorization = 'Bearer ' + state.token;
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401 && !path.startsWith('/api/auth/')) {
+    // 会话过期 / 已在别处锁定 → 回到锁屏
+    clearToken();
+    showLock();
+    throw new Error('已锁定，请重新输入密码');
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || '请求失败');
   }
   return res.status === 204 ? null : res.json();
+}
+
+function setToken(t) {
+  state.token = t;
+  localStorage.setItem(TOKEN_KEY, t);
+}
+function clearToken() {
+  state.token = '';
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+/* ---------- 锁屏 / 解锁 ---------- */
+function showLock() {
+  $('#lock-screen').classList.remove('hidden');
+  document.querySelector('.tabs').classList.add('hidden');
+  document.querySelector('main').classList.add('hidden');
+  $('#btn-new').classList.add('hidden');
+  $('#btn-lock').classList.add('hidden');
+  $('#lock-error').textContent = '';
+  if (state.mode === 'init') {
+    $('#lock-title').textContent = '设置访问密码';
+    $('#lock-hint').textContent = '首次使用，请设置一个访问密码。数据将以 AES-256-GCM 加密存储，密码只以派生校验值保存——忘记将无法找回。';
+    $('#lock-submit').textContent = '初始化并进入';
+    $('#lock-pwd').autocomplete = 'new-password';
+    $('#lock-pwd2').classList.remove('hidden');
+  } else {
+    $('#lock-title').textContent = '🔒 仓库已锁定';
+    $('#lock-hint').textContent = '请输入访问密码解锁（数据为密文存储，密码错误无法打开）';
+    $('#lock-submit').textContent = '解锁进入';
+    $('#lock-pwd').autocomplete = 'current-password';
+    $('#lock-pwd2').classList.add('hidden');
+  }
+  $('#lock-pwd').value = '';
+  $('#lock-pwd2').value = '';
+  setTimeout(() => $('#lock-pwd').focus(), 50);
+}
+
+function showApp() {
+  $('#lock-screen').classList.add('hidden');
+  document.querySelector('.tabs').classList.remove('hidden');
+  document.querySelector('main').classList.remove('hidden');
+  $('#btn-new').classList.remove('hidden');
+  $('#btn-lock').classList.remove('hidden');
+}
+
+async function submitLock(e) {
+  e.preventDefault();
+  const pwd = $('#lock-pwd').value;
+  const errEl = $('#lock-error');
+  errEl.textContent = '';
+  if (state.mode === 'init' && pwd !== $('#lock-pwd2').value) {
+    errEl.textContent = '两次输入的密码不一致'; return;
+  }
+  $('#lock-submit').disabled = true;
+  $('#lock-submit').textContent = '处理中…（密钥派生需要几秒）';
+  try {
+    const r = state.mode === 'init'
+      ? await api('/api/auth/init', { method: 'POST', body: JSON.stringify({ password: pwd }) })
+      : await api('/api/auth/unlock', { method: 'POST', body: JSON.stringify({ password: pwd }) });
+    setToken(r.token);
+    showApp();
+    await loadAll();
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    $('#lock-submit').disabled = false;
+  }
+}
+
+async function doLock() {
+  if (!confirm('确定锁定吗？锁定后需重新输入密码才能查看数据。')) return;
+  try { await api('/api/auth/lock', { method: 'POST' }); } catch (e) { /* 服务端可能已失效 */ }
+  clearToken();
+  state.mode = 'unlock';
+  showLock();
+}
+
+/* ---------- 修改密码 ---------- */
+function openPasswdDialog() {
+  $('#passwd-form').reset();
+  $('#passwd-error').textContent = '';
+  $('#dlg-passwd').showModal();
+}
+
+async function submitPasswd(e) {
+  e.preventDefault();
+  const f = $('#passwd-form');
+  const fd = new FormData(f);
+  const oldPassword = fd.get('oldPassword'), newPassword = fd.get('newPassword'), confirmPwd = fd.get('confirm');
+  const errEl = $('#passwd-error');
+  errEl.textContent = '';
+  if (newPassword !== confirmPwd) { errEl.textContent = '两次输入的新密码不一致'; return; }
+  const btn = f.querySelector('button[type=submit]');
+  btn.disabled = true; btn.textContent = '重新加密中…';
+  try {
+    const r = await api('/api/auth/password', { method: 'POST', body: JSON.stringify({ oldPassword, newPassword }) });
+    setToken(r.token); // 旧会话已作废，换新 token
+    $('#dlg-passwd').close();
+    alert('密码已修改，全部数据已用新密码重新加密 ✅');
+  } catch (err) {
+    errEl.textContent = err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = '确认修改';
+  }
+}
+
+/* ---------- 启动：先查状态决定锁屏还是直接进入 ---------- */
+async function boot() {
+  try {
+    const st = await fetch('/api/auth/status', { headers: state.token ? { Authorization: 'Bearer ' + state.token } : {} }).then((r) => r.json());
+    if (st.unlocked) { showApp(); await loadAll(); return; }
+    state.mode = st.initialized ? 'unlock' : 'init';
+    showLock();
+  } catch (err) {
+    $('#lock-error').textContent = '无法连接服务：' + err.message;
+    showLock();
+  }
+}
+
+async function loadAll() {
+  await loadCategories();
+  await loadItems();
+  await loadOutbound(); // 预载出库记录，用于统计卡片
 }
 
 /* ---------- 加载 ---------- */
@@ -302,17 +434,26 @@ $('#ob-list').addEventListener('click', async (e) => {
   } catch (err) { alert(err.message); }
 });
 
-$('#btn-export').addEventListener('click', () => {
-  window.location.href = '/api/export';
+$('#btn-export').addEventListener('click', async () => {
+  // 导出为密文备份：接口需要 Bearer token，用 fetch 拿 blob 再触发下载
+  try {
+    const res = await fetch('/api/export', { headers: { Authorization: 'Bearer ' + state.token } });
+    if (!res.ok) throw new Error('导出失败');
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'digital-warehouse-export.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (err) { alert(err.message); }
 });
 
+/* ---------- 锁屏 / 密码相关事件 ---------- */
+$('#lock-form').addEventListener('submit', submitLock);
+$('#btn-lock').addEventListener('click', doLock);
+$('#btn-passwd').addEventListener('click', openPasswdDialog);
+$('#btn-passwd-cancel').addEventListener('click', () => $('#dlg-passwd').close());
+$('#passwd-form').addEventListener('submit', submitPasswd);
+
 /* ---------- 启动 ---------- */
-(async function init() {
-  try {
-    await loadCategories();
-    await loadItems();
-    await loadOutbound(); // 预载出库记录，用于统计卡片
-  } catch (err) {
-    alert('初始化失败：' + err.message);
-  }
-})();
+boot();

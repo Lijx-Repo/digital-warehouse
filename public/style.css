@@ -130,3 +130,25 @@ label.full { grid-column: 1 / -1; margin-top: 10px; display: flex; }
   .form-grid { grid-template-columns: 1fr; }
   .topbar { flex-wrap: wrap; gap: 10px; }
 }
+
+/* ============ 密码锁屏 ============ */
+#lock-screen {
+  display: flex; justify-content: center; align-items: center;
+  min-height: 70vh; padding: 2rem 1rem;
+}
+.lock-card {
+  width: 100%; max-width: 380px; text-align: center;
+  background: var(--card, #fff); border-radius: 16px; padding: 2rem 1.5rem;
+  box-shadow: 0 8px 30px rgba(0,0,0,.08);
+}
+.lock-icon { font-size: 2.6rem; margin-bottom: .4rem; }
+.lock-card h2 { margin: 0 0 .6rem; }
+.lock-hint { font-size: .82rem; color: var(--muted, #767d8a); line-height: 1.6; margin: 0 0 1.2rem; }
+#lock-form { display: flex; flex-direction: column; gap: .7rem; }
+#lock-form input {
+  padding: .65rem .8rem; border: 1px solid var(--line, #e3e6ea); border-radius: 10px; font-size: .95rem;
+}
+#lock-form input:focus { outline: 2px solid var(--primary, #2f6fed); border-color: transparent; }
+#lock-form .btn { width: 100%; justify-content: center; padding: .7rem; }
+.lock-error { color: #d33; font-size: .85rem; min-height: 1.2em; margin: .8rem 0 0; }
+.one-col { grid-template-columns: 1fr !important; }

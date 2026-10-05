@@ -16,13 +16,30 @@
       </div>
     </div>
     <div class="actions">
-      <button id="btn-export" class="btn ghost" title="导出全部数据为 JSON">⬇ 导出</button>
-      <button id="btn-new" class="btn primary">＋ 入库登记</button>
+      <button id="btn-export" class="btn ghost" title="导出全部数据为 JSON（密文备份）">⬇ 导出</button>
+      <button id="btn-passwd" class="btn ghost" title="修改访问密码">🔑 修改密码</button>
+      <button id="btn-lock" class="btn ghost hidden" title="锁定并退出">🔒 锁定</button>
+      <button id="btn-new" class="btn primary hidden">＋ 入库登记</button>
     </div>
   </header>
 
+  <!-- 密码锁屏：首次使用设置密码；之后输入密码解锁 -->
+  <section id="lock-screen" class="hidden">
+    <div class="lock-card">
+      <div class="lock-icon">🔐</div>
+      <h2 id="lock-title">设置访问密码</h2>
+      <p class="lock-hint" id="lock-hint">首次使用，请设置一个访问密码。数据将以 AES-256-GCM 加密存储，密码只以派生校验值保存——忘记将无法找回。</p>
+      <form id="lock-form">
+        <input id="lock-pwd" type="password" placeholder="访问密码（至少 4 位）" autocomplete="new-password" required minlength="4" />
+        <input id="lock-pwd2" type="password" placeholder="确认密码" autocomplete="new-password" required minlength="4" />
+        <button type="submit" class="btn primary" id="lock-submit">初始化并进入</button>
+      </form>
+      <p class="lock-error" id="lock-error"></p>
+    </div>
+  </section>
+
   <!-- 页面切换 -->
-  <nav class="tabs">
+  <nav class="tabs hidden">
     <button class="tab active" data-page="stock">📦 在库物品</button>
     <button class="tab" data-page="outbound">📤 出库记录</button>
   </nav>
@@ -136,7 +153,25 @@
     </form>
   </dialog>
 
-  <footer class="foot">digital-warehouse · v0.5 精简版 · 数据存储于本地 data/items.json</footer>
+  <!-- 修改密码弹窗 -->
+  <dialog id="dlg-passwd">
+    <form id="passwd-form" method="dialog">
+      <h2>🔑 修改访问密码</h2>
+      <p class="lock-hint">修改后将用新密码重新加密全部数据并原子写盘，旧会话立即失效。</p>
+      <div class="form-grid one-col">
+        <label>原密码 *<input name="oldPassword" type="password" required autocomplete="current-password" /></label>
+        <label>新密码 *（至少 4 位）<input name="newPassword" type="password" required minlength="4" autocomplete="new-password" /></label>
+        <label>确认新密码 *<input name="confirm" type="password" required minlength="4" autocomplete="new-password" /></label>
+      </div>
+      <p class="lock-error" id="passwd-error"></p>
+      <div class="dlg-actions">
+        <button type="button" id="btn-passwd-cancel" class="btn ghost">取消</button>
+        <button type="submit" class="btn primary">确认修改</button>
+      </div>
+    </form>
+  </dialog>
+
+  <footer class="foot">digital-warehouse · v0.6 · AES-256-GCM 加密存储于本地 data/items.json</footer>
   <script src="app.js"></script>
 </body>
 </html>

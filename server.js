@@ -14,6 +14,46 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'items.json');
 
+/* ---------------- 安全：密码哈希 + 数据加密（AES-256-GCM，防明文） ---------------- */
+const PBKDF2_ITER = 210000; // OWASP 建议量级
+const SESSION_TTL_MS = 7 * 24 * 3600 * 1000; // 会话有效期 7 天
+const sessions = new Map(); // token -> { salt, key, expires }
+let authFailUntil = 0; // 登录失败限速：在此之前拒绝新的解锁尝试
+
+/** 口令 → (salt, 派生密钥)。同一函数用于「验证登录」和「解密数据」：
+ *  文件头存的 verifier 用该密钥 HMAC 得到；加密密钥 = HKDF(主密钥)，密文自带 GCM 认证标签。
+ *  因此只有正确密码才能同时通过校验并解密——磁盘上绝无明文数据与密码。 */
+function deriveKey(password, saltHex) {
+  return crypto.pbkdf2Sync(String(password), Buffer.from(saltHex, 'hex'), PBKDF2_ITER, 32, 'sha256');
+}
+function hmacHex(key, dataBuf) {
+  return crypto.createHmac('sha256', key).update(dataBuf).digest('hex');
+}
+function timingSafeHexEqual(a, b) {
+  const ba = Buffer.from(String(a)), bb = Buffer.from(String(b));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+function hkdf(master, info) {
+  const prk = crypto.createHmac('sha256', master).update(Buffer.from(info)).digest();
+  return crypto.createHmac('sha256', prk).update(Buffer.from([1])).digest(); // 1-block OKP，32 字节
+}
+
+function encryptJSON(obj, master) {
+  const key = hkdf(master, 'enc');
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const plain = Buffer.from(JSON.stringify(obj), 'utf8');
+  const enc = Buffer.concat([cipher.update(plain), cipher.final()]);
+  return { alg: 'AES-256-GCM', v: 1, iv: iv.toString('hex'), tag: cipher.getAuthTag().toString('hex'), data: enc.toString('base64') };
+}
+function decryptJSON(env, master) {
+  const key = hkdf(master, 'enc');
+  const d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(env.iv, 'hex'));
+  d.setAuthTag(Buffer.from(env.tag, 'hex'));
+  const plain = Buffer.concat([d.update(Buffer.from(env.data, 'base64')), d.final()]);
+  return JSON.parse(plain.toString('utf8'));
+}
+
 /* ---------------- 数据层 ---------------- */
 function defaultCategories() {
   return ['茶叶', '白酒', '红酒', '洋酒', '保健品', '香烟', '礼品', '食品', '其他'];
@@ -90,24 +130,75 @@ function migrate(db) {
   return db;
 }
 
-function loadDB() {
+/* ---------------- 加密存储层 ---------------- */
+/* data/items.json 落盘格式（信封）：
+ *   { kdf:{salt, verifier, iter}, enc:{iv,tag,data} }
+ * - verifier = HMAC(派生密钥, "verify") —— 密码校验值（单向用途，与加密密钥分离）
+ * - enc      = AES-256-GCM 密文，密钥 = HKDF(派生密钥)
+ * 磁盘上不存在明文数据、不存在密码（连哈希也不存，存的是可复用的派生校验值）。 */
+
+let db = null;               // 仅在解锁后驻留内存
+let unlocked = null;         // { token, salt, key, expires } 当前服务端会话
+
+function readEnvelope() {
   try {
-    const raw = fs.readFileSync(DB_FILE, 'utf8');
-    return migrate(JSON.parse(raw));
-  } catch (e) {
-    return { items: seedItems(), outbound: seedOutbound(), categories: defaultCategories() };
-  }
+    const env = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    if (env && env.kdf && env.kdf.salt && env.kdf.verifier && env.enc) return env;
+  } catch (e) { /* 文件不存在或损坏 */ }
+  return null;
 }
 
-function saveDB(db) {
+function writeEnvelope(env) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const tmp = DB_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2), 'utf8');
+  fs.writeFileSync(tmp, JSON.stringify(env, null, 2), 'utf8');
   fs.renameSync(tmp, DB_FILE);
 }
 
-let db = loadDB();
-saveDB(db); // 首次运行时落盘种子数据
+/** 用主密钥重新封装并原子写盘（每次数据变更后调用） */
+function saveDB(nextDb) {
+  if (!unlocked) throw new Error('内部错误：未解锁不允许写盘');
+  db = nextDb;
+  writeEnvelope({
+    kdf: { salt: unlocked.salt, verifier: hmacHex(unlocked.key, Buffer.from('verify')), iter: PBKDF2_ITER },
+    enc: encryptJSON(db, unlocked.key),
+  });
+}
+
+/** 尝试用密码解锁：先验 verifier，再解密数据。成功返回 db，失败返回 null */
+function tryUnlock(salt, password) {
+  const key = deriveKey(password, salt);
+  const env = readEnvelope();
+  if (!env) return null;
+  if (!timingSafeHexEqual(hmacHex(key, Buffer.from('verify')), env.kdf.verifier)) return null;
+  try {
+    return { key, db: migrate(decryptJSON(env.enc, key)) };
+  } catch (e) {
+    return null; // GCM 认证失败 → 密钥不对或文件被篡改
+  }
+}
+
+function makeSession(salt, key) {
+  const token = crypto.randomBytes(32).toString('hex');
+  unlocked = { token, salt, key, expires: Date.now() + SESSION_TTL_MS };
+  sessions.set(token, unlocked);
+  return token;
+}
+function sessionFromReq(req) {
+  const h = req.headers.authorization || '';
+  const m = h.match(/^Bearer\s+([0-9a-f]{64})$/i);
+  if (!m) return null;
+  const s = sessions.get(m[1]);
+  if (!s) return null;
+  if (s.expires < Date.now()) { sessions.delete(m[1]); return null; }
+  s.expires = Date.now() + SESSION_TTL_MS; // 滑动续期
+  return s;
+}
+function requireAuth(req, res) {
+  const s = sessionFromReq(req);
+  if (!s) { sendJSON(res, 401, { error: '未解锁，请先输入访问密码' }); return null; }
+  return s;
+}
 
 /* ---------------- 工具函数 ---------------- */
 function sanitizeItem(body) {
@@ -162,6 +253,86 @@ function readBody(req) {
   });
 }
 
+/* ---------------- 认证 API（/api/auth/*，无需 token） ---------------- */
+function handleAuth(req, res, url) {
+  const action = parts2(url)[2]; // ['api','auth',action] -> action
+
+  /* GET /api/auth/status —— 前端据此决定：初始化密码 / 解锁 / 已解锁 */
+  if (action === 'status' && req.method === 'GET') {
+    const env = readEnvelope();
+    const s = sessionFromReq(req);
+    return sendJSON(res, 200, {
+      initialized: !!env,
+      unlocked: !!s,
+      lockedForSeconds: Math.max(0, Math.ceil((authFailUntil - Date.now()) / 1000)),
+    });
+  }
+
+  /* POST /api/auth/init { password } —— 首次使用：设置访问密码并写入加密种子数据 */
+  if (action === 'init' && req.method === 'POST') {
+    if (readEnvelope()) return sendJSON(res, 409, { error: '系统已初始化，请勿重复设置密码' });
+    return readBody(req).then((body) => {
+      const pwd = String(body.password || '');
+      if (pwd.length < 4) return sendJSON(res, 400, { error: '密码至少 4 位' });
+      const salt = crypto.randomBytes(16).toString('hex');
+      const key = deriveKey(pwd, salt);
+      makeSession(salt, key);
+      saveDB(migrate({ items: seedItems(), outbound: seedOutbound(), categories: defaultCategories() }));
+      sendJSON(res, 201, { ok: true, token: unlocked.token });
+    }).catch(() => sendJSON(res, 400, { error: '请求体 JSON 无效' }));
+  }
+
+  /* POST /api/auth/unlock { password } —— 输入密码解密数据并建立会话 */
+  if (action === 'unlock' && req.method === 'POST') {
+    if (Date.now() < authFailUntil) {
+      return sendJSON(res, 429, { error: `尝试过于频繁，请 ${Math.ceil((authFailUntil - Date.now()) / 1000)} 秒后再试` });
+    }
+    const env = readEnvelope();
+    if (!env) return sendJSON(res, 400, { error: '尚未初始化，请先设置访问密码' });
+    return readBody(req).then((body) => {
+      const res2 = tryUnlock(env.kdf.salt, String(body.password || ''));
+      if (!res2) { authFailUntil = Date.now() + 3000; return sendJSON(res, 401, { error: '密码错误' }); }
+      makeSession(env.kdf.salt, res2.key);
+      db = res2.db;
+      sendJSON(res, 200, { ok: true, token: unlocked.token });
+    }).catch(() => sendJSON(res, 400, { error: '请求体 JSON 无效' }));
+  }
+
+  /* POST /api/auth/lock —— 锁定：清除服务端会话与内存数据 */
+  if (action === 'lock' && req.method === 'POST') {
+    const s = requireAuth(req, res);
+    if (!s) return;
+    sessions.delete(s.token);
+    if (unlocked && unlocked.token === s.token) unlocked = null;
+    db = null;
+    return sendJSON(res, 200, { ok: true });
+  }
+
+  /* POST /api/auth/password { oldPassword, newPassword } —— 修改密码：
+   * 验证旧密码 → 新盐重新派生 → 用新密钥重加密全部数据后原子落盘 */
+  if (action === 'password' && req.method === 'POST') {
+    const env = readEnvelope();
+    if (!env) return sendJSON(res, 400, { error: '尚未初始化' });
+    return readBody(req).then((body) => {
+      const oldPwd = String(body.oldPassword || '');
+      const newPwd = String(body.newPassword || '');
+      if (newPwd.length < 4) return sendJSON(res, 400, { error: '新密码至少 4 位' });
+      const check = tryUnlock(env.kdf.salt, oldPwd);
+      if (!check) return sendJSON(res, 401, { error: '原密码不正确' });
+      if (!db) db = check.db; // 理论上已在会话中解锁；兜底
+      const newSalt = crypto.randomBytes(16).toString('hex');
+      const newKey = deriveKey(newPwd, newSalt);
+      if (unlocked) sessions.delete(unlocked.token); // 作废旧会话
+      makeSession(newSalt, newKey);
+      saveDB(db); // 用新密钥重加密写盘
+      sendJSON(res, 200, { ok: true, token: unlocked.token });
+    }).catch(() => sendJSON(res, 400, { error: '请求体 JSON 无效' }));
+  }
+
+  sendJSON(res, 404, { error: '接口不存在' });
+}
+function parts2(url) { return url.pathname.split('/').filter(Boolean); } // ['api','auth',...]
+
 /* ---------------- API ---------------- */
 function withMeta(it) {
   return { ...it, meta: timeInfo(it) };
@@ -195,6 +366,11 @@ function handleAPI(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', 'items', ':id', ...]
   const resource = parts[1];
 
+  if (resource === 'auth') return handleAuth(req, res, url);
+
+  /* —— 其余业务接口一律要求已解锁的 Bearer token；数据只在解锁后驻留内存 —— */
+  if (!requireAuth(req, res)) return;
+
   if (resource === 'categories' && req.method === 'GET') {
     return sendJSON(res, 200, db.categories);
   }
@@ -215,11 +391,12 @@ function handleAPI(req, res, url) {
   }
 
   if (resource === 'export' && req.method === 'GET') {
+    // 导出为密文信封（与磁盘同格式）：备份文件不含明文，换机后用同一密码即可解锁恢复
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
       'Content-Disposition': 'attachment; filename="digital-warehouse-export.json"',
     });
-    return res.end(JSON.stringify(db, null, 2));
+    return res.end(JSON.stringify({ app: 'digital-warehouse', encrypted: true, note: 'AES-256-GCM 密文备份，需访问密码才能打开；恢复时直接覆盖 data/items.json', ...readEnvelope() }, null, 2));
   }
 
   /* ---------- 出库记录页 ---------- */
