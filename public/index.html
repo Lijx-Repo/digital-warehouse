@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Digital Warehouse · 家庭数字仓库</title>
+  <title>Digital Warehouse · 家庭礼品仓库</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <span class="logo">🏠</span>
+      <span class="logo">🍵</span>
       <div>
         <h1>Digital Warehouse</h1>
-        <p class="subtitle">家庭贵重物品数字仓库</p>
+        <p class="subtitle">家庭茶叶 · 酒品等送礼物品数字仓库</p>
       </div>
     </div>
     <div class="actions">
@@ -24,27 +24,28 @@
   <main>
     <!-- 统计卡片 -->
     <section class="stats" id="stats">
-      <div class="card"><div class="num" id="st-count">–</div><div class="label">物品种类</div></div>
-      <div class="card"><div class="num" id="st-value">–</div><div class="label">总价值 (¥)</div></div>
-      <div class="card warn"><div class="num" id="st-expiring">–</div><div class="label">即将过保</div></div>
-      <div class="card danger"><div class="num" id="st-expired">–</div><div class="label">已过保</div></div>
+      <div class="card"><div class="num" id="st-count">–</div><div class="label">记录种类</div></div>
+      <div class="card"><div class="num" id="st-value">–</div><div class="label">在库总价值 (¥)</div></div>
+      <div class="card warn"><div class="num" id="st-expiring">–</div><div class="label">临期(90天内)</div></div>
+      <div class="card danger"><div class="num" id="st-expired">–</div><div class="label">已过期</div></div>
     </section>
 
     <!-- 搜索 / 过滤 -->
     <section class="toolbar">
-      <input id="search" type="search" placeholder="搜索名称、品牌、序列号、存放位置…" />
+      <input id="search" type="search" placeholder="搜索名称、品牌、年份、存放位置、存储方法…" />
       <select id="filter-category"><option value="">全部分类</option></select>
       <select id="sort">
         <option value="updatedAt">按最近更新</option>
-        <option value="price">按价值高低</option>
+        <option value="price">按单价高低</option>
         <option value="name">按名称</option>
-        <option value="purchaseDate">按购买日期</option>
+        <option value="purchaseDate">按购入日期</option>
+        <option value="expiryDate">按保质期</option>
       </select>
     </section>
 
     <!-- 列表 -->
     <section id="list" class="grid"></section>
-    <div id="empty" class="empty hidden">还没有物品，点击右上角「添加物品」开始记录吧。</div>
+    <div id="empty" class="hidden empty">还没有记录，点击右上角「添加物品」开始登记家里的茶叶、酒品吧。</div>
   </main>
 
   <!-- 弹窗表单 -->
@@ -52,29 +53,51 @@
     <form id="form" method="dialog">
       <h2 id="dlg-title">添加物品</h2>
       <div class="form-grid">
-        <label>名称 *<input name="name" required placeholder="例：戴森吸尘器 V12" /></label>
+        <label>名称 *<input name="name" required placeholder="例：贵州茅台酒" /></label>
         <label>分类
           <div class="cat-row">
             <select name="category" id="form-category"></select>
             <input name="newCategory" placeholder="新分类…" class="hidden" id="new-category" />
           </div>
         </label>
-        <label>品牌<input name="brand" placeholder="例：Dyson" /></label>
-        <label>型号<input name="model" placeholder="例：V12 Detect Slim" /></label>
-        <label>序列号<input name="serial" placeholder="机身条码 / SN" /></label>
-        <label>购买日期<input name="purchaseDate" type="date" /></label>
-        <label>价格 (¥)<input name="price" type="number" min="0" step="0.01" placeholder="0.00" /></label>
-        <label>数量<input name="quantity" type="number" min="1" step="1" value="1" /></label>
-        <label>保修期（月）<input name="warrantyMonths" type="number" min="0" step="1" placeholder="例：24" /></label>
-        <label>购买渠道<input name="store" placeholder="例：京东自营" /></label>
-        <label>存放位置<input name="location" placeholder="例：客厅储物间" /></label>
-        <label>状态
+        <label>品牌<input name="brand" placeholder="例：茅台 / 大益 / 狮峰牌" /></label>
+        <label>规格型号<input name="model" placeholder="例：飞天 53%vol 500ml" /></label>
+        <label>数量<input name="quantity" type="number" min="0" step="1" value="1" /></label>
+        <label>单位
+          <select name="unit">
+            <option>件</option><option>瓶</option><option>盒</option><option>罐</option>
+            <option>饼</option><option>提</option><option>箱</option><option>条</option>
+          </select>
+        </label>
+        <label>购入价格（整批）<input name="price" type="number" min="0" step="0.01" placeholder="例：5798.00" /></label>
+        <label>当前单件估值<input name="valuePerUnit" type="number" min="0" step="0.01" placeholder="市价有变时填写，如老酒增值" /></label>
+        <label>购入日期<input name="purchaseDate" type="date" /></label>
+        <label>购买渠道<input name="store" placeholder="例：官方渠道 / 朋友代购" /></label>
+        <label>生产日期 / 年份<input name="productionDate" type="date" /></label>
+        <label>保质期至<input name="expiryDate" type="date" />
+          <span class="hint">绿茶/铁观音/食品请填写；白酒、普洱、蜂蜜等可陈化物品留空即不提醒</span>
+        </label>
+        <label>库存状态
+          <select name="status">
+            <option value="在库" selected>在库</option>
+            <option value="部分送出">部分送出</option>
+            <option value="已送出">已送出</option>
+            <option value="已饮用">已饮用</option>
+            <option value="已食用">已食用</option>
+            <option value="已闲置">已闲置</option>
+            <option value="已报废">已报废</option>
+          </select>
+        </label>
+        <label>存放位置<input name="location" placeholder="例：酒柜上层 / 茶室博古架" /></label>
+        <label>存储方法<input name="storage" placeholder="例：避光阴凉处直立存放" /></label>
+        <label>成色
           <select name="condition">
             <option>全新</option><option selected>良好</option><option>一般</option><option>故障</option><option>已报废</option>
           </select>
         </label>
+        <label>保修期（月）<input name="warrantyMonths" type="number" min="0" step="1" placeholder="茶具电器等才需要" /></label>
       </div>
-      <label class="full">备注<textarea name="notes" rows="2" placeholder="配件、发票编号、延保信息等"></textarea></label>
+      <label class="full">备注<textarea name="notes" rows="2" placeholder="送礼记录、防伪码位置、发票信息等"></textarea></label>
       <div class="dlg-actions">
         <button type="button" id="btn-cancel" class="btn ghost">取消</button>
         <button type="submit" class="btn primary" id="btn-save">保存</button>
@@ -82,7 +105,7 @@
     </form>
   </dialog>
 
-  <footer class="foot">digital-warehouse · 初版 v0.1 · 数据存储于本地 data/items.json</footer>
+  <footer class="foot">digital-warehouse · v0.2 · 数据存储于本地 data/items.json</footer>
   <script src="app.js"></script>
 </body>
 </html>

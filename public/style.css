@@ -72,7 +72,12 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgba(47, 111, 237
 .badge.warn { background: rgba(217,119,6,.12); color: var(--warn); }
 .badge.danger { background: rgba(220,38,38,.1); color: var(--danger); }
 .badge.neutral { background: var(--line); color: var(--muted); }
-.item-actions { display: flex; gap: 8px; margin-top: 10px; }
+.badge.muted { background: rgba(107,118,136,.14); color: var(--muted); opacity: .85; }
+.item.expired { border: 1px solid rgba(220,38,38,.35); }
+.price small { font-size: 12px; font-weight: 500; color: var(--muted); }
+.hint { font-size: 11px; font-weight: 400; color: var(--muted); line-height: 1.4; }
+.item-actions { display: flex; gap: 8px; }
+.item-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
 
 .btn {
   border: none; border-radius: 8px; padding: 9px 16px; font-size: 14px; cursor: pointer;

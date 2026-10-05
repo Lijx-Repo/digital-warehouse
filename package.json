@@ -1,7 +1,7 @@
 {
   "name": "digital-warehouse",
-  "version": "0.1.0",
-  "description": "A project aiming to enable families to manage all the expensive stuff in the household. 帮助家庭管理所有贵重物品的数字仓库。",
+  "version": "0.2.0",
+  "description": "A project aiming to enable families to manage all the expensive stuff in the household. 帮助家庭管理茶叶、酒品等送礼物品的数字仓库。",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -11,6 +11,10 @@
     "household",
     "inventory",
     "family",
+    "tea",
+    "liquor",
+    "gift",
+    "shelf-life",
     "asset-management",
     "warranty"
   ],

@@ -63,6 +63,28 @@ function warrantyBadge(it) {
   return '';
 }
 
+/* 保质期徽章：茶叶/食品看 expiryDate；白酒、普洱等可陈化物品留空则显示「宜陈放」 */
+function shelfLifeBadge(it) {
+  const s = it.shelfLife || {};
+  if (s.status === '已过期') return `<span class="badge danger">⚠️ 已过期 (${esc(it.expiryDate)})</span>`;
+  if (s.status === '临期') return `<span class="badge danger">⏰ 临期 · 剩${s.daysLeft}天</span>`;
+  if (s.status === '保质期内') return `<span class="badge ok">✅ 保质期内 · ${esc(it.expiryDate)}</span>`;
+  if (it.expiryDate) return `<span class="badge neutral">保质期 ${esc(it.expiryDate)}</span>`;
+  return `<span class="badge neutral">🍶 宜陈放 · 无保质期</span>`;
+}
+
+const CAT_ICON = { '茶叶': '🍵', '白酒': '🍶', '红酒': '🍷', '洋酒': '🥃', '保健品': '💊', '香烟': '🚬', '礼品': '🎁', '食品': '🍜' };
+const catIcon = (c) => CAT_ICON[c] || '📦';
+
+const STATUS_MAP = {
+  '在库': 'ok', '部分送出': 'neutral', '已送出': 'muted',
+  '已饮用': 'muted', '已食用': 'muted', '已闲置': 'neutral', '已报废': 'danger',
+};
+function statusBadge(s) {
+  const cls = STATUS_MAP[s] || 'neutral';
+  return `<span class="badge ${cls}">${esc(s || '在库')}</span>`;
+}
+
 function conditionBadge(c) {
   const map = { '全新': 'ok', '良好': 'ok', '一般': 'neutral', '故障': 'warn', '已报废': 'danger' };
   return `<span class="badge ${map[c] || 'neutral'}">${esc(c)}</span>`;
@@ -79,22 +101,25 @@ function renderList() {
   list.innerHTML = state.items.map((it) => `
     <article class="item" data-id="${it.id}">
       <div class="item-head">
-        <h3 class="item-name">${esc(it.name)}${it.quantity > 1 ? ` ×${it.quantity}` : ''}</h3>
+        <h3 class="item-name">${catIcon(it.category)} ${esc(it.name)}${it.quantity > 1 ? ` ×${it.quantity}${esc(it.unit || '')}` : ''}</h3>
         <span class="item-cat">${esc(it.category)}</span>
       </div>
       <div class="meta">
-        ${it.brand ? `<b>${esc(it.brand)}</b>${it.model ? ' · ' + esc(it.model) : ''}<br>` : ''}
-        ${it.serial ? `SN: ${esc(it.serial)}<br>` : ''}
+        ${it.brand ? `<b>${esc(it.brand)}</b>${it.model ? ' · ' + esc(it.model) : ''}<br>` : (it.model ? `<b>${esc(it.model)}</b><br>` : '')}
+        ${it.productionDate ? `🏷 年份/生产：${esc(it.productionDate)}<br>` : ''}
         ${it.purchaseDate ? `购于 ${esc(it.purchaseDate)}${it.store ? '（' + esc(it.store) + '）' : ''}<br>` : ''}
-        ${it.location ? `📍 ${esc(it.location)}` : ''}
+        ${it.location ? `📍 ${esc(it.location)}${it.storage ? ' · 存储：' + esc(it.storage) : ''}` : (it.storage ? '🧊 存储：' + esc(it.storage) : '')}
+        ${it.serial ? `<br>🔎 ${esc(it.serial)}` : ''}
         ${it.notes ? `<br>📝 ${esc(it.notes)}` : ''}
       </div>
       <div class="badges">
-        ${conditionBadge(it.condition)}
+        ${statusBadge(it.status)}
+        ${shelfLifeBadge(it)}
         ${warrantyBadge(it)}
+        ${conditionBadge(it.condition)}
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
-        <span class="price">${fmtMoney(it.price)}</span>
+        <span class="price">${fmtMoney(it.valuePerUnit != null ? it.valuePerUnit : it.price)}${it.price != null && it.valuePerUnit == null && it.quantity > 1 ? ` <small>/件 · 共${fmtMoney(it.price * it.quantity)}</small>` : ''}</span>
         <div class="item-actions">
           <button class="btn ghost small" data-act="edit">编辑</button>
           <button class="btn danger-ghost small" data-act="del">删除</button>
@@ -111,7 +136,7 @@ function openDialog(item) {
   f.reset();
   $('#new-category').classList.add('hidden');
   if (item) {
-    for (const k of ['name','brand','model','serial','purchaseDate','price','quantity','warrantyMonths','store','location','condition','notes']) {
+    for (const k of ['name','brand','model','serial','purchaseDate','price','valuePerUnit','quantity','unit','warrantyMonths','productionDate','expiryDate','storage','status','store','location','condition','notes']) {
       if (f.elements[k]) f.elements[k].value = item[k] ?? '';
     }
     if (state.categories.includes(item.category)) f.elements.category.value = item.category;
