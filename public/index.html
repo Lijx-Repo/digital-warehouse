@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Digital Warehouse · 家庭礼品仓库</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🍵</span>
+      <div>
+        <h1>Digital Warehouse</h1>
+        <p class="subtitle">茶叶 · 酒品等送礼物品 —— 入库 / 出库 / 时间追踪</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="btn-export" class="btn ghost" title="导出全部数据为 JSON">⬇ 导出</button>
+      <button id="btn-new" class="btn primary">＋ 入库登记</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- 统计卡片 -->
+    <section class="stats" id="stats">
+      <div class="card"><div class="num" id="st-total">–</div><div class="label">总记录</div></div>
+      <div class="card ok"><div class="num" id="st-in">–</div><div class="label">在库</div></div>
+      <div class="card muted"><div class="num" id="st-out">–</div><div class="label">已出库</div></div>
+    </section>
+
+    <!-- 搜索 / 过滤 -->
+    <section class="toolbar">
+      <input id="search" type="search" placeholder="搜索名称、规格、存放位置、备注…" />
+      <select id="filter-category"><option value="">全部分类</option></select>
+      <select id="filter-stock">
+        <option value="">全部状态</option>
+        <option value="in">仅看在库</option>
+        <option value="out">仅看已出库</option>
+      </select>
+      <select id="sort">
+        <option value="-inDate">入库日期（新→旧）</option>
+        <option value="inDate">入库日期（旧→新）</option>
+        <option value="name">按名称</option>
+      </select>
+    </section>
+
+    <!-- 列表 -->
+    <section id="list" class="grid"></section>
+    <div id="empty" class="hidden empty">还没有记录，点击右上角「入库登记」开始记录家里的茶叶、酒品吧。</div>
+  </main>
+
+  <!-- 弹窗表单 -->
+  <dialog id="dlg">
+    <form id="form" method="dialog">
+      <h2 id="dlg-title">入库登记</h2>
+      <div class="form-grid">
+        <label>名称 *<input name="name" required placeholder="例：贵州茅台酒" /></label>
+        <label>分类
+          <div class="cat-row">
+            <select name="category" id="form-category"></select>
+            <input name="newCategory" placeholder="新分类…" class="hidden" id="new-category" />
+          </div>
+        </label>
+        <label>规格<input name="spec" placeholder="例：飞天 53%vol 500ml" /></label>
+        <label>数量<input name="quantity" type="number" min="0" step="1" value="1" /></label>
+        <label>单位
+          <select name="unit">
+            <option>件</option><option>瓶</option><option>盒</option><option>罐</option>
+            <option>饼</option><option>提</option><option>箱</option><option>条</option>
+          </select>
+        </label>
+        <label>入库日期<input name="inDate" type="date" /></label>
+        <label>出库日期<input name="outDate" type="date" /><span class="hint">留空表示仍在库中</span></label>
+        <label>存放位置<input name="location" placeholder="例：酒柜上层 / 茶室博古架" /></label>
+      </div>
+      <label class="full">备注<textarea name="notes" rows="2" placeholder="谁送的、准备送给谁、放在哪…"></textarea></label>
+      <div class="dlg-actions">
+        <button type="button" id="btn-cancel" class="btn ghost">取消</button>
+        <button type="submit" class="btn primary" id="btn-save">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <footer class="foot">digital-warehouse · v0.3 精简版 · 数据存储于本地 data/items.json</footer>
+  <script src="app.js"></script>
+</body>
+</html>
